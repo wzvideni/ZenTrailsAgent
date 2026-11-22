@@ -395,6 +395,11 @@ def handle_call(name, arguments):
         desc = arguments.get("description", "")
         if not title:
             return {"content": [{"type": "text", "text": "title required"}]}
+        # 先打开 Uploader 面板，建立正确的 OpenWithCurtain 状态（open=true）。
+        # 否则直接调 TakeScreenshot 会在截图协程结束时把面板 localScale 硬设为 1
+        # 却不置 open=true，导致上传成功后 if(open){Close()} 关闭逻辑失效，
+        # 留下一个无法关闭的全屏黑框（游戏自身 bug）。
+        conn.call("call", "type:Uploader", "Open")
         st, out = conn.call("get", "type:Uploader", "designTitle")
         tid = out.split("id=")[1].split(")")[0]
         conn.call("set", f"obj:{tid}", "text", title)
