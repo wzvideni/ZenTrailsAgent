@@ -1,102 +1,194 @@
-# Zen Trails AI 控制方案（已验证可行）
+# Zen Trails AI 控制方案
 
-目标：让 AI Agent（含 DSH）通过 MCP 工具控制《Zen Trails》（Steam，Unity 2019.1 Mono）。
+让 AI Agent 通过 **MCP（Model Context Protocol）** 控制 Steam 游戏《Zen Trails》（Unity 2019.1 / Mono）。AI 直接调用游戏自身的 C# API 来绘制、修改、播放作品，并可用截图做视觉反馈。
 
-结论：**可行**。AI 已实测通过游戏自己的 API 生成了一条 36 段的嵌套曼陀罗轨迹，并截图存证。
+**结论：可行且已落地** —— 已实测通过 MCP 工具进入编辑场景、创建线段与分支图案、截图验证，全链路贯通。
 
 ## 架构
 
 ```
-AI Agent (DSH)
-   │  MCP stdio (JSON-RPC 2.0)
+AI Agent（任意 MCP 客户端）
+   │  MCP stdio（JSON-RPC 2.0）
    ▼
 mcp_server.py  ──(line protocol / TCP 127.0.0.1:5123)──▶  ZenTrailsAgent.dll
                                                             (BepInEx 5 插件，游戏进程内)
                                                                │  Unity 主线程执行
                                                                ▼
-                                                            游戏 C# API（反射调用）
+                                                             游戏 C# API（反射调用）
 ```
 
-- 在游戏进程内注入 BepInEx 插件，暴露 TCP 控制面（127.0.0.1:5123）。
-- 插件把每个命令放到 Unity 主线程 `Update()` 里执行，安全地调用游戏 C# 方法。
-- MCP server 把协议封装成 8 个工具，任何 MCP 客户端都能调用。
+- **游戏内插件**：`ZenTrailsAgent.dll` 注入到游戏进程，监听 `127.0.0.1:5123`，把每个命令放到 Unity 主线程 `Update()` 里执行，安全地反射调用游戏方法。
+- **MCP server**：`mcp_server.py`（纯标准库 + Pillow），把桥协议封装成 11 个 MCP 工具。
+- **客户端**：任何支持 MCP stdio 的客户端都能接入（Claude Desktop、Cursor、Cline、DSH 等）。
 
-## 文件清单
+## 目录结构
 
-| 文件 | 作用 |
-|------|------|
-| `src/AgentBridge.cs` | BepInEx 插件源码（C# 5，Framework csc 编译） |
-| `dist/ZenTrailsAgent.dll` | 编译产物（`tools/build_plugin.ps1` 生成，已部署到游戏） |
-| `client.py` | 桥接客户端（Python，stdio 之外也可直接用） |
-| `mcp_server.py` | MCP server（stdio / JSON-RPC 2.0，11 个工具） |
-| `tools/build_plugin.ps1` | 编译 + 部署 + 重启游戏 |
-| `tools/test_tools.py` / `tools/test_clickui.py` | MCP 工具端到端测试 |
-| `demo_draw.py` / `demo_mandala.py` | 演示脚本 |
-| `tools/Dump.cs` / `tools/DumpIL.cs` | 反射/IL 反编译工具源码（Cecil） |
+```
+ZenTrailsAgent/
+├── src/
+│   ├── AgentBridge.cs       # BepInEx 插件源码（C# 5，Framework csc 编译）
+│   ├── Dump.cs              # 反射 API 转储工具源码（Cecil）
+│   └── DumpIL.cs            # IL 反编译工具源码（Cecil）
+├── tools/
+│   ├── build_plugin.ps1     # 编译 + 部署 + 重启游戏（一键）
+│   ├── test_tools.py        # MCP 工具端到端测试
+│   ├── test_clickui.py      # UI 点击端到端测试
+│   └── lib/                 # 逆向工具运行时依赖（从游戏拷贝，不进 git）
+├── client.py                # 桥接客户端（可独立于 MCP 使用）
+├── mcp_server.py            # MCP server（stdio / JSON-RPC 2.0）
+├── demo_draw.py             # 演示：程序化画线段
+├── demo_mandala.py          # 演示：黄金角曼陀罗（36 段）
+├── dist/                    # 编译产物（*.dll，不进 git）
+├── dumps/                   # 逆向中间产物（不进 git）
+├── pyproject.toml           # uv 项目管理
+└── .python-version
+```
+
+## 依赖
+
+| 依赖 | 用途 | 获取方式 |
+|------|------|----------|
+| BepInEx 5 | 游戏插件运行时 | 游戏汉化补丁自带（`<游戏>/winhttp.dll` + `BepInEx/`） |
+| csc（.NET Framework 4.x） | 编译插件 | Windows 自带：`C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe` |
+| Python ≥ 3.11 | 运行 MCP server | `uv` 管理（`uv sync` 创建 `.venv`，含 Pillow） |
+| Mono.Cecil | 逆向工具（可选） | 从游戏 `BepInEx\core\` 拷贝 |
+
+## 构建
+
+### 1. 编译插件
+
+```powershell
+# 仅编译（产物 dist/ZenTrailsAgent.dll）
+pwsh -File tools/build_plugin.ps1
+```
+
+脚本引用游戏目录的 `BepInEx\core\BepInEx.dll` 与 `Zen Trails_Data\Managed\UnityEngine*.dll`，游戏路径写死在脚本顶部 `$game`，可按需修改。
+
+### 2. 编译逆向工具（可选）
+
+仅当需要静态分析游戏类型/IL 时：
+
+```powershell
+# 先把 Cecil 依赖拷进来
+Copy-Item "<游戏>\BepInEx\core\Mono.Cecil*.dll" tools\lib\ -Force
+
+# 编译反射转储工具
+csc /out:tools\Dump.exe /r:tools\lib\Mono.Cecil.dll src\Dump.cs
+# 编译 IL 反编译工具
+csc /out:tools\DumpIL.exe /r:tools\lib\Mono.Cecil.dll src\DumpIL.cs
+
+# 用法示例：转储游戏全部类型/成员
+tools\Dump.exe "<游戏>\Zen Trails_Data\Managed\Assembly-CSharp.dll" dumps\api.txt
+```
+
+## 安装
+
+### 1. 安装 Python 依赖
+
+```powershell
+cd C:\Programming\PyCharm\ZenTrailsAgent
+uv sync          # 创建 .venv 并安装 Pillow
+```
+
+### 2. 部署插件到游戏
+
+```powershell
+# 一键：编译 + 覆盖到游戏 plugins + 重启游戏
+pwsh -File tools/build_plugin.ps1 -Deploy -Restart
+```
+
+或手动拷贝：
+
+```powershell
+Copy-Item dist\ZenTrailsAgent.dll "<游戏>\BepInEx\plugins\" -Force
+```
+
+### 3. 启动游戏
+
+插件在 `Awake` 时监听 `127.0.0.1:5123`。游戏启动后可验证：
+
+```powershell
+& ".\.venv\Scripts\python.exe" -c "from client import Bridge; print(Bridge().cmd('ping')[1])"
+# 期望输出：pong zen=<帧数> fps=60
+```
+
+## 接入 MCP 客户端
+
+在任意 MCP 客户端的配置里加入一个 `mcpServers` 条目（这是 Claude Desktop / Cursor / Cline 等通用的 JSON 格式）：
+
+```json
+{
+  "mcpServers": {
+    "zentrails": {
+      "command": "C:\\Programming\\PyCharm\\ZenTrailsAgent\\.venv\\Scripts\\python.exe",
+      "args": [
+        "C:\\Programming\\PyCharm\\ZenTrailsAgent\\mcp_server.py"
+      ]
+    }
+  }
+}
+```
+
+各客户端的落盘位置：
+
+| 客户端 | 配置文件 |
+|--------|----------|
+| Claude Desktop | `claude_desktop_config.json` |
+| Cursor | `.cursor/mcp.json` |
+| Cline / Roo | 插件设置里的 MCP Servers（等价 JSON） |
+| 其他 | 任何支持 `command` + `args` 的 stdio MCP 配置，内容等价 |
+
+> 若环境里 `uv` 在 PATH，也可用 `"command": "uv"` + `"args": ["run", "--project", "C:\\Programming\\PyCharm\\ZenTrailsAgent", "python", "mcp_server.py"]`。
+
+重启客户端后，工具列表会出现 `zentrails` 系列（`zen_cmd`、`zen_screenshot` 等 11 个）。`mcp_server.py` 是懒连接：游戏没开时它不会崩，只是调用返回 `[ERR] bridge error`。
 
 ## MCP 工具
 
 | 工具 | 说明 |
 |------|------|
 | `zen_cmd` | 通用桥命令（ping/types/describe/scene/find/get/set/call/coroutine/shot/mouse/drag/clickui/focus/log） |
-| `zen_screenshot` | 截图到 `<游戏目录>\shots\*.png`；`return_image=true` 时内联返回缩放后的 JPEG（供 vision 模型直接看） |
-| `zen_scene` | 转储场景层级 |
+| `zen_screenshot` | 截图到 `<游戏目录>\shots\*.png`；`return_image=true` 内联返回缩放 JPEG 供 vision 模型直读 |
+| `zen_scene` | 转储场景层级（GameObject + 组件） |
 | `zen_find` | 按类型列出活动实例（带 instance ID 和路径） |
 | `zen_types` | 枚举游戏类型（可过滤子串） |
-| `zen_describe` | 反射类型（字段/属性/方法/枚举） |
+| `zen_describe` | 反射类型：字段 / 属性 / 方法 / 枚举 |
 | `zen_get` | 读字段/属性（点路径，静态/实例均可） |
 | `zen_set` | 写字段/属性（按声明类型转换，静态/实例均可） |
 | `zen_call` | 调用普通方法（按参数类型转换） |
 | `zen_coroutine` | 调用协程方法（`IEnumerator`），经 `StartCoroutine` 真正执行 |
 | `zen_clickui` | 进程内点击 UI Button（窗口失焦也能点） |
 
+### 反射选择器约定
+
+- `obj:<instanceID>` —— 按实例 ID 定位
+- `path:/Name` —— 按 GameObject 路径定位
+- `type:<FullName>` —— 先找静态单例字段（`instance`/`Instance`/`I`/`_instance`/`singleton`/`Current`…），否则取第一个活动实例
+
 ## 关键结论 / 陷阱
 
-1. **走游戏自己的 API，不要手动 new 对象**。直接构造 `Segment` 会崩（原生层），
-   而调用 `ClickAndDrag.CreateNewSegment(...)` 走游戏代码路径是安全的。
-2. **反射选择器约定**：`obj:<instanceID>`、`path:/Name`、`type:<FullName>`
-   （后者优先找静态单例字段 `instance/Instance/I/_instance/singleton/...`，否则取第一个活动实例）。
-3. **合成鼠标事件（SendInput/mouse_event）Unity 不接收**：实测 OS 级点击无效；
-   但「进程内点击 UI 按钮」和「直接调用游戏方法」都可靠。
-4. **协程方法**（返回 `IEnumerator`）要用 `zen_coroutine` 才会真正执行；
-   普通 `static void` 入口（如 `GameManager.BeginMainGame`）用 `zen_call` 即可。
+1. **走游戏自己的 API，不要手动 new 对象**。直接构造 `Segment` 会触发原生崩溃；调用 `ClickAndDrag.CreateNewSegment(...)` 走游戏代码路径才是安全的。
+2. **合成鼠标事件 Unity 不接收**：OS 级 `SendInput`/`mouse_event` 点击无效；「进程内点击 UI 按钮」（`zen_clickui`）和「直接调用游戏方法」都可靠。
+3. **协程方法**（返回 `IEnumerator`）要用 `zen_coroutine` 才真正执行；普通 `static void` 入口（如 `GameManager.BeginMainGame`）用 `zen_call`。
+4. **`gameState` 字段可能是残留值**，以 `zen_scene` 看到的实际场景为准（配合截图最可靠）。
 
-## 实测操作序列（成功）
-
-```
-call type:GameManager BeginMainGame        # 进入编辑场景
-call type:ClickAndDrag CreateNewSegment    # 反复调用，传入 parentID 链
-   0,ID,null,length,speed,angle,drawTrail,trailWidth,color,pos,layerOrder,glow,isGradient,gradient,centerCam,openInfoP
-shot mandala                               # 截图
-```
-
-36 段，长度递减、角度按黄金角 137.5° 旋转、HSV 渐变色，逐段 `parentID` 串成链。
-
-## 接入 DSH
-
-在 profile 的 `cordis.patch.yml` 追加一条 MCP client（与现有 ida/android/stellaris 同款）：
-
-```yaml
-- insert:
-  - id: cc-switch-mcp-zentrails
-    name: '@deepseek-ai/dsh-mcp-client'
-    config:
-      command: python
-      args:
-      - C:\Users\DC\ZenTrailsAgent\mcp_server.py
-      serverName: zentrails
-      transport: stdio
-```
-
-重启 DSH 会话后即可使用。手动验证：
+## 演示：黄金角曼陀罗
 
 ```powershell
-python C:\Users\DC\ZenTrailsAgent\mcp_server.py
-# 然后按 MCP 协议发送 initialize / tools/list / tools/call
+& ".\.venv\Scripts\python.exe" demo_mandala.py
 ```
 
-## 前置条件
+等价于用 MCP 工具循环执行 `zen_call`：
 
-- 游戏已启动（插件在 `Awake` 时监听 5123 端口）。
-- 插件 DLL 在 `BepInEx\plugins\ZenTrailsAgent.dll`。
-- 端口冲突可改 `AgentBridge.Port` 后重编译。
+```
+zen_call  selector=type:GameManager  method=BeginMainGame
+zen_call  selector=type:ClickAndDrag  method=CreateNewSegment
+  参数：isChild, ID, parentID, length, speed, angle,
+        drawTrail, trailWidth, color, pos, layerOrder,
+        glow, isGradient, gradient, centerCam, openInfoP
+```
+
+36 段：长度递减、角度按黄金角 137.5° 旋转、HSV 渐变色、逐段 `parentID` 串成链，最终截图 `shots/mandala.png` 存证。
+
+## 端口冲突
+
+插件默认监听 `127.0.0.1:5123`，冲突时改 `src/AgentBridge.cs` 里的 `AgentPlugin.Port`，重新构建部署即可。
