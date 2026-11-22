@@ -1,8 +1,8 @@
 """打发布包：编译插件 + 组装 MCP 服务 + 安装说明，压成可直接分发的 zip。
 
 产物结构（zip 内）：
-    ZenTrails-AI控制-v<版本>/
-        安装说明.txt
+    ZenTrails-Agent-v<版本>/
+        INSTALL.txt
         game/                          ← 解压覆盖到游戏根目录
             winhttp.dll
             doorstop_config.ini
@@ -182,7 +182,7 @@ def main():
     else:
         build_plugin(args.game, out_dll)
 
-    top = "ZenTrails-AI控制-v%s" % version
+    top = "ZenTrails-Agent-v%s" % version
     stage = _os.path.join(paths.DIST, "_stage")
     if _os.path.isdir(stage):
         shutil.rmtree(stage)
@@ -192,16 +192,18 @@ def main():
     stage_mcp(stage, version)
 
     # 安装说明
-    doc = _os.path.join(paths.DOCS, "安装说明.txt")
+    doc = _os.path.join(paths.DOCS, "INSTALL.txt")
+    if not _os.path.exists(doc):
+        doc = _os.path.join(paths.DOCS, "安装说明.txt")
     need(doc)
-    copy_tree(doc, _os.path.join(stage, "安装说明.txt"))
+    copy_tree(doc, _os.path.join(stage, "INSTALL.txt"))
 
     files = sum(len(f) for _, _, f in _os.walk(stage))
     size = sum(_os.path.getsize(_os.path.join(d, f))
                for d, _, fs in _os.walk(stage) for f in fs)
     log("· 组装完成：%d 个文件，%.1f MB" % (files, size / 1048576.0))
 
-    # 打 zip：顶层是 ZenTrails-AI控制-v<版本>/ 目录
+    # 打 zip：顶层是 ZenTrails-Agent-v<版本>/ 目录
     zip_path = _os.path.join(paths.DIST, "%s.zip" % top)
     # 先把 staging 内容整体放进 top/ 再压，使解压后是一个顶层目录
     wrap = _os.path.join(paths.DIST, "_wrap")

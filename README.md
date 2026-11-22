@@ -34,7 +34,7 @@ ZenTrailsAgent/
 │   ├── client.py            # 桥接客户端（TCP line protocol）
 │   └── server.py            # MCP server（stdio / JSON-RPC 2.0，15 个工具）
 ├── docs/
-│   └── 安装说明.txt          # 随发布包分发的安装/接入说明
+│   └── INSTALL.txt          # 随发布包分发的安装/接入说明
 ├── demos/                   # 演示样例库
 │   ├── astral_dodecagram_magic_circle.py # 演示：十二重天体禁咒·终焉十二芒星与群星宿命大魔法阵
 │   ├── flower_of_life_rosette.py         # 演示：折扇星芒与生命之花圣轮（-2逆速谐振）
@@ -147,9 +147,9 @@ uv run python tools/package.py --game <路径> # 指定游戏目录（默认 ZEN
 产物：
 
 ```
-dist/ZenTrails-AI控制-v0.1.3.zip
-    ZenTrails-AI控制-v0.1.3/
-        安装说明.txt
+dist/ZenTrails-Agent-v0.1.7.zip
+    ZenTrails-Agent-v0.1.7/
+        INSTALL.txt
         game/                              ← 解压覆盖到游戏根目录
             winhttp.dll  doorstop_config.ini  .doorstop_version
             BepInEx/core/                   ← BepInEx 5 运行时
