@@ -18,7 +18,7 @@ mcp_server.py  ──(line protocol / TCP 127.0.0.1:5123)──▶  ZenTrailsAge
 ```
 
 - **游戏内插件**：`ZenTrailsAgent.dll` 注入到游戏进程，监听 `127.0.0.1:5123`，把每个命令放到 Unity 主线程 `Update()` 里执行，安全地反射调用游戏方法。
-- **MCP server**：`mcp_server.py`（纯标准库 + Pillow），把桥协议封装成 11 个 MCP 工具。
+- **MCP server**：`zentrails_agent/server.py`（纯标准库 + Pillow），把桥协议封装成 15 个 MCP 工具。
 - **客户端**：任何支持 MCP stdio 的客户端都能接入（Claude Desktop、Cursor、Cline、DSH 等）。
 
 ## 目录结构
@@ -32,17 +32,23 @@ ZenTrailsAgent/
 ├── zentrails_agent/         # Python 包（可安装，提供 zen-trails-agent 命令）
 │   ├── __init__.py
 │   ├── client.py            # 桥接客户端（TCP line protocol）
-│   └── server.py            # MCP server（stdio / JSON-RPC 2.0，11 个工具）
+│   └── server.py            # MCP server（stdio / JSON-RPC 2.0，15 个工具）
+├── docs/
+│   └── 安装说明.txt          # 随发布包分发的安装/接入说明
 ├── tools/
 │   ├── build_plugin.ps1     # 编译 + 部署 + 重启游戏（一键）
+│   ├── package.py           # 打发布包（编译插件 + 组装 MCP 服务 + 安装说明 → zip）
+│   ├── paths.py             # 统一路径约定（仓库内相对定位，游戏目录可 ZEN_TRAILS_HOME 覆盖）
 │   ├── test_tools.py        # MCP 工具端到端测试
 │   ├── test_clickui.py      # UI 点击端到端测试
+│   ├── test_upload.py       # 上传回归测试（验证先 Open 面板的修复）
 │   └── lib/                 # 逆向工具运行时依赖（从游戏拷贝，不进 git）
 ├── client.py                # 兼容 shim（等价于 zentrails_agent.client）
 ├── mcp_server.py            # 兼容 shim（等价于 zentrails_agent.server:main）
 ├── demo_draw.py             # 演示：程序化画线段
 ├── demo_mandala.py          # 演示：黄金角曼陀罗（36 段）
-├── dist/                    # 编译产物（*.dll，不进 git）
+├── demo_magic_circle.py     # 演示：魔法阵（外摆线花瓣 + 内圈）
+├── dist/                    # 编译产物 + 发布 zip（不进 git）
 ├── dumps/                   # 逆向中间产物（不进 git）
 ├── pyproject.toml           # uv 项目管理（含 [project.scripts] 入口）
 └── .python-version
@@ -123,6 +129,36 @@ Copy-Item dist\ZenTrailsAgent.dll "<游戏>\BepInEx\plugins\" -Force
 # 期望输出：pong zen=<帧数> fps=60
 ```
 
+## 打包分发
+
+一键打出「可直接解压分发」的 zip：编译插件 + 组装 MCP 服务 + 写入安装说明。
+
+```powershell
+cd C:\Programming\PyCharm\ZenTrailsAgent
+uv run python tools/package.py               # 编译插件 + 打 zip
+uv run python tools/package.py --no-rebuild  # 用已有 dist/ZenTrailsAgent.dll，不重编
+uv run python tools/package.py --game <路径> # 指定游戏目录（默认 ZEN_TRAILS_HOME / Steam 常见位置）
+```
+
+产物：
+
+```
+dist/ZenTrails-AI控制-v0.1.3.zip
+    ZenTrails-AI控制-v0.1.3/
+        安装说明.txt
+        game/                              ← 解压覆盖到游戏根目录
+            winhttp.dll  doorstop_config.ini  .doorstop_version
+            BepInEx/core/                   ← BepInEx 5 运行时
+            BepInEx/plugins/ZenTrailsAgent.dll
+        mcp/                               ← MCP 服务，放任意目录，用 uvx 启动
+            pyproject.toml
+            zentrails_agent/…  client.py  mcp_server.py
+```
+
+- `game/` 的内容覆盖到游戏根目录即完成插件安装；`BepInEx` 运行时随包分发，目标机器无需预装汉化补丁。
+- `mcp/` 是一个可被 `uvx` 直接构建的 Python 包，接入客户端时 `--from` 指向它即可（见下文「接入 MCP 客户端」）。
+- zip 内顶层是版本目录，解压即得一个自包含目录，不污染解压位置的其他文件。
+
 ## 接入 MCP 客户端
 
 在任意 MCP 客户端的配置里加入一个 `mcpServers` 条目（这是 Claude Desktop / Cursor / Cline 等通用的 JSON 格式）。项目已打包成可安装的 Python 包，提供 `zen-trails-agent` 命令，因此可以用 `uvx` 一行启动：
@@ -167,7 +203,7 @@ Copy-Item dist\ZenTrailsAgent.dll "<游戏>\BepInEx\plugins\" -Force
 
 > 关于 `npx`：这是 Node 的等价物。本项目的 MCP server 是 Python 实现，用 `uvx` 是最自然的对应方式；若需要 `npx` 形式，需另写一个 Node 版 server（桥接协议不变，仅 client/server 换成 JS），目前未提供。
 
-重启客户端后，工具列表会出现 `zentrails` 系列（`zen_cmd`、`zen_screenshot` 等 11 个）。`mcp_server.py` 是懒连接：游戏没开时它不会崩，只是调用返回 `[ERR] bridge error`。
+重启客户端后，工具列表会出现 `zentrails` 系列（`zen_cmd`、`zen_screenshot` 等 15 个）。`mcp_server.py` 是懒连接：游戏没开时它不会崩，只是调用返回 `[ERR] bridge error`。
 
 ## MCP 工具
 
@@ -184,6 +220,10 @@ Copy-Item dist\ZenTrailsAgent.dll "<游戏>\BepInEx\plugins\" -Force
 | `zen_call` | 调用普通方法（按参数类型转换） |
 | `zen_coroutine` | 调用协程方法（`IEnumerator`），经 `StartCoroutine` 真正执行 |
 | `zen_clickui` | 进程内点击 UI Button（窗口失焦也能点） |
+| `zen_music` | 切换背景音乐（Mandalas/Wavelengths/Footprints/Dreams/Space，缺省切下一首） |
+| `zen_save` | 保存当前作品为 .mndla 存档（type: custom/preset） |
+| `zen_load` | 读取 .mndla 存档（反序列化 + SaveAndLoadManager.Load） |
+| `zen_upload` | 上传作品到 Steam 创意工坊（真实网络副作用，30 秒冷却，需 Steam 已连接） |
 
 ### 反射选择器约定
 
@@ -197,6 +237,22 @@ Copy-Item dist\ZenTrailsAgent.dll "<游戏>\BepInEx\plugins\" -Force
 2. **合成鼠标事件 Unity 不接收**：OS 级 `SendInput`/`mouse_event` 点击无效；「进程内点击 UI 按钮」（`zen_clickui`）和「直接调用游戏方法」都可靠。
 3. **协程方法**（返回 `IEnumerator`）要用 `zen_coroutine` 才真正执行；普通 `static void` 入口（如 `GameManager.BeginMainGame`）用 `zen_call`。
 4. **`gameState` 字段可能是残留值**，以 `zen_scene` 看到的实际场景为准（配合截图最可靠）。
+5. **上传前必须先 `Open()` Uploader 面板**。游戏 `Uploader.ieTakeScreenshot` 协程结束时会把面板 `localScale` 硬设回 1 却绕过 `OpenWithCurtain` 状态机，若面板未先 `Open()`（`open=false`），上传成功后的关闭逻辑 `if(open){Close()}` 失效，留下无法关闭的全屏黑框。`zen_upload` 工具已内建先 `Open()` 的调用顺序（0.1.3 起），回归测试见 `tools/test_upload.py`。
+
+## 上传验证（已实测）
+
+`zen_upload` 完整链路已在真实 Steam 创意工坊上验证通过（「旋转花瓣」作品，作者 DC）：
+
+1. `zen_load` 加载 26 段「旋转花瓣」存档 → `zen_upload title=旋转花瓣` → 状态「上传中......」→「上传成功!耶!!」。
+2. 上传后面板自动收起（`localScale=(0,1,1)`、`sOpener.open=false`），`gameState` 回到 `BUILDING`，无残留黑框 —— 修复生效。
+3. CommunityHub 列表可见作者 DC 的多条「旋转花瓣」条目（真实发布成功）。
+
+回归测试：
+
+```powershell
+uv run python tools/test_upload.py --skip-upload   # 只验证 Open/Close 状态机，不真上传
+uv run python tools/test_upload.py                 # 完整上传 + 等待面板自动收起（注意 30 秒冷却）
+```
 
 ## 演示：黄金角曼陀罗
 

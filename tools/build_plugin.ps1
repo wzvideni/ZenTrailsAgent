@@ -1,10 +1,15 @@
-# 编译 AgentBridge.cs → dist/ZenTrailsAgent.dll，可选部署到游戏并重启。
+﻿# 编译 AgentBridge.cs → dist/ZenTrailsAgent.dll，可选部署到游戏并重启。
 # 用法:
 #   pwsh -File tools/build_plugin.ps1            # 仅编译
 #   pwsh -File tools/build_plugin.ps1 -Deploy    # 编译并部署到游戏 plugins
 #   pwsh -File tools/build_plugin.ps1 -Deploy -Restart   # 部署后重启游戏进程
+#
+# 游戏目录默认取环境变量 ZEN_TRAILS_HOME，否则按 Steam 常见位置拼出来；
+# 也可用 -Game 显式指定。
 [CmdletBinding()]
 param(
+    [string]$Game = $(if ($env:ZEN_TRAILS_HOME) { $env:ZEN_TRAILS_HOME }
+                      else { Join-Path ${env:ProgramFiles(x86)} 'Steam\steamapps\common\Zen Trails' }),
     [switch]$Deploy,
     [switch]$Restart
 )
@@ -12,9 +17,8 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $root    = Split-Path -Parent $PSScriptRoot
-$game    = 'C:\Program Files (x86)\Steam\steamapps\common\Zen Trails'
-$managed = Join-Path $game 'Zen Trails_Data\Managed'
-$core    = Join-Path $game 'BepInEx\core'
+$managed = Join-Path $Game 'Zen Trails_Data\Managed'
+$core    = Join-Path $Game 'BepInEx\core'
 $csc     = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 $src     = Join-Path $root 'src\AgentBridge.cs'
 $outDir  = Join-Path $root 'dist'
@@ -42,7 +46,7 @@ if ($LASTEXITCODE -ne 0) { throw "编译失败 (exit $LASTEXITCODE)" }
 Write-Host "编译成功: $outDll" -ForegroundColor Green
 
 if ($Deploy) {
-    $plugins = Join-Path $game 'BepInEx\plugins'
+    $plugins = Join-Path $Game 'BepInEx\plugins'
     # 覆盖 DLL 前必须停游戏（文件被进程锁定）
     Get-Process 'Zen Trails' -ErrorAction SilentlyContinue | Stop-Process -Force
     Start-Sleep -Seconds 1
@@ -50,7 +54,7 @@ if ($Deploy) {
     Write-Host "已部署到: $plugins" -ForegroundColor Green
 
     if ($Restart) {
-        Start-Process -FilePath (Join-Path $game 'Zen Trails.exe') -WorkingDirectory $game
+        Start-Process -FilePath (Join-Path $Game 'Zen Trails.exe') -WorkingDirectory $Game
         Write-Host "游戏已重启" -ForegroundColor Green
     }
 }

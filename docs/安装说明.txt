@@ -1,0 +1,84 @@
+Zen Trails AI 控制方案 v0.1
+==============================
+
+游戏：Zen Trails（Steam）
+游戏引擎：Unity 2019.1.8f1（Mono）
+原理：BepInEx 5 插件 + MCP（Model Context Protocol）服务
+      —— 让 AI Agent（Claude Desktop / Cursor / Cline / DSH 等）直接驱动游戏。
+
+本压缩包分两部分：
+  game\   → 解压覆盖到游戏根目录（装插件）
+  mcp\    → 放任意目录，作为 MCP 服务被 AI 客户端启动
+
+一、装了之后能做什么
+--------------------
+AI 通过 MCP 工具（zen_cmd / zen_get / zen_set / zen_call / zen_screenshot 等 15 个）
+直接调用游戏自身的 C# API：
+  · 程序化绘制图案（线段、曼陀罗、魔法阵等）
+  · 修改线段参数（长度 / 速度 / 颜色 / 轨迹 / 辉光 …）
+  · 播放 / 暂停 / 隐藏线段 / 清空
+  · 更换背景与主题、缩放平移视角
+  · 切换音乐、截图（供视觉模型看）
+  · 保存 / 读取 .mndla 存档
+  · 上传作品到 Steam 创意工坊（真实网络副作用）
+
+二、安装
+--------
+1. 完全退出游戏（含后台进程）。
+2. 把压缩包里 game\ 目录的内容解压覆盖到游戏根目录：
+       ...\Steam\steamapps\common\Zen Trails\
+   解压后应当看到：
+       Zen Trails.exe
+       winhttp.dll              ← BepInEx 加载器
+       doorstop_config.ini
+       .doorstop_version
+       BepInEx\
+           core\                ← BepInEx 5 本体
+           plugins\ZenTrailsAgent.dll   ← 本方案的插件
+3. 把 mcp\ 目录放到一个固定位置（例如 C:\Tools\zentrails-mcp\）。
+4. 启动游戏。插件在游戏进程内监听 127.0.0.1:5123，无需额外启动服务。
+
+三、接入 AI 客户端
+------------------
+以 DSH（或任意支持 MCP stdio 的客户端）为例，在 mcpServers 配置里加：
+
+  {
+    "mcpServers": {
+      "zentrails": {
+        "command": "uvx",
+        "args": ["--from", "C:\\Tools\\zentrails-mcp", "zen-trails-agent"]
+      }
+    }
+  }
+
+  说明：
+  · command 用 uvx（uv 自带）；把 --from 的路径换成你解压 mcp\ 目录的实际路径。
+  · 若把 mcp 包发布到 PyPI，可省略 --from，直接 "args": ["zen-trails-agent"]。
+  · 客户端重启后应出现 zentrails 系列工具（zen_cmd、zen_screenshot 等）。
+
+四、验证是否成功
+----------------
+在能访问游戏机器的终端执行（uv 环境）：
+
+    uvx --from "C:\Tools\zentrails-mcp" python -c ^
+      "import sys; sys.path.insert(0,'C:\Tools\zentrails-mcp'); from zentrails_agent.client import Bridge; print(Bridge().cmd('ping')[1])"
+
+期望输出：pong zen=<帧数> fps=60
+
+五、卸载 / 还原
+---------------
+删掉游戏根目录下这些文件和文件夹即可：
+    winhttp.dll  doorstop_config.ini  .doorstop_version
+    BepInEx\plugins\ZenTrailsAgent.dll
+（若 BepInEx 是本方案首次装的，可连 BepInEx\ 一起删；若已装汉化补丁请保留。）
+
+六、注意事项
+-----------
+1. 插件只监听本机 127.0.0.1:5123，不对外网开放。
+2. 上传工具 zen_upload 会真实发布到 Steam 创意工坊，且有 30 秒冷却；
+   请仅在明确授权时使用。
+3. 游戏未运行时 MCP 服务是懒连接，调用会返回 bridge error，不会崩溃；
+   先开游戏再用即可。
+4. 端口被占用时，改插件源码 src\AgentBridge.cs 里的 AgentPlugin.Port 后重新编译。
+
+详细技术文档见仓库 README.md。
