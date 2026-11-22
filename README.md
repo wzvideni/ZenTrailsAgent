@@ -29,18 +29,22 @@ ZenTrailsAgent/
 │   ├── AgentBridge.cs       # BepInEx 插件源码（C# 5，Framework csc 编译）
 │   ├── Dump.cs              # 反射 API 转储工具源码（Cecil）
 │   └── DumpIL.cs            # IL 反编译工具源码（Cecil）
+├── zentrails_agent/         # Python 包（可安装，提供 zen-trails-agent 命令）
+│   ├── __init__.py
+│   ├── client.py            # 桥接客户端（TCP line protocol）
+│   └── server.py            # MCP server（stdio / JSON-RPC 2.0，11 个工具）
 ├── tools/
 │   ├── build_plugin.ps1     # 编译 + 部署 + 重启游戏（一键）
 │   ├── test_tools.py        # MCP 工具端到端测试
 │   ├── test_clickui.py      # UI 点击端到端测试
 │   └── lib/                 # 逆向工具运行时依赖（从游戏拷贝，不进 git）
-├── client.py                # 桥接客户端（可独立于 MCP 使用）
-├── mcp_server.py            # MCP server（stdio / JSON-RPC 2.0）
+├── client.py                # 兼容 shim（等价于 zentrails_agent.client）
+├── mcp_server.py            # 兼容 shim（等价于 zentrails_agent.server:main）
 ├── demo_draw.py             # 演示：程序化画线段
 ├── demo_mandala.py          # 演示：黄金角曼陀罗（36 段）
 ├── dist/                    # 编译产物（*.dll，不进 git）
 ├── dumps/                   # 逆向中间产物（不进 git）
-├── pyproject.toml           # uv 项目管理
+├── pyproject.toml           # uv 项目管理（含 [project.scripts] 入口）
 └── .python-version
 ```
 
@@ -50,7 +54,8 @@ ZenTrailsAgent/
 |------|------|----------|
 | BepInEx 5 | 游戏插件运行时 | 游戏汉化补丁自带（`<游戏>/winhttp.dll` + `BepInEx/`） |
 | csc（.NET Framework 4.x） | 编译插件 | Windows 自带：`C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe` |
-| Python ≥ 3.11 | 运行 MCP server | `uv` 管理（`uv sync` 创建 `.venv`，含 Pillow） |
+| Python ≥ 3.11 | 运行 MCP server | `uv` 管理（`uv sync` 创建 `.venv`，含 Pillow 并安装本包） |
+| uv | 用 `uvx` 启动（可选） | `pip install uv` 或官方安装器 |
 | Mono.Cecil | 逆向工具（可选） | 从游戏 `BepInEx\core\` 拷贝 |
 
 ## 构建
@@ -87,7 +92,13 @@ tools\Dump.exe "<游戏>\Zen Trails_Data\Managed\Assembly-CSharp.dll" dumps\api.
 
 ```powershell
 cd C:\Programming\PyCharm\ZenTrailsAgent
-uv sync          # 创建 .venv 并安装 Pillow
+uv sync          # 创建 .venv、安装 Pillow，并把本包作为可执行命令 zen-trails-agent 装入 venv
+```
+
+验证命令已装好：
+
+```powershell
+uvx --from . zen-trails-agent --help   # 或：.\.venv\Scripts\zen-trails-agent.exe
 ```
 
 ### 2. 部署插件到游戏
@@ -114,16 +125,32 @@ Copy-Item dist\ZenTrailsAgent.dll "<游戏>\BepInEx\plugins\" -Force
 
 ## 接入 MCP 客户端
 
-在任意 MCP 客户端的配置里加入一个 `mcpServers` 条目（这是 Claude Desktop / Cursor / Cline 等通用的 JSON 格式）：
+在任意 MCP 客户端的配置里加入一个 `mcpServers` 条目（这是 Claude Desktop / Cursor / Cline 等通用的 JSON 格式）。项目已打包成可安装的 Python 包，提供 `zen-trails-agent` 命令，因此可以用 `uvx` 一行启动：
 
 ```json
 {
   "mcpServers": {
     "zentrails": {
-      "command": "C:\\Programming\\PyCharm\\ZenTrailsAgent\\.venv\\Scripts\\python.exe",
+      "command": "uvx",
       "args": [
-        "C:\\Programming\\PyCharm\\ZenTrailsAgent\\mcp_server.py"
+        "--from", "C:\\Programming\\PyCharm\\ZenTrailsAgent",
+        "zen-trails-agent"
       ]
+    }
+  }
+}
+```
+
+> 若把包发布到 PyPI，则可省略 `--from`，直接 `"command": "uvx"` + `"args": ["zen-trails-agent"]`（与 `uvx ida-mcp` 同款）。
+
+备选方式（不依赖 `uvx`，直接调用 venv 里的 console script）：
+
+```json
+{
+  "mcpServers": {
+    "zentrails": {
+      "command": "C:\\Programming\\PyCharm\\ZenTrailsAgent\\.venv\\Scripts\\zen-trails-agent.exe",
+      "args": []
     }
   }
 }
@@ -138,7 +165,7 @@ Copy-Item dist\ZenTrailsAgent.dll "<游戏>\BepInEx\plugins\" -Force
 | Cline / Roo | 插件设置里的 MCP Servers（等价 JSON） |
 | 其他 | 任何支持 `command` + `args` 的 stdio MCP 配置，内容等价 |
 
-> 若环境里 `uv` 在 PATH，也可用 `"command": "uv"` + `"args": ["run", "--project", "C:\\Programming\\PyCharm\\ZenTrailsAgent", "python", "mcp_server.py"]`。
+> 关于 `npx`：这是 Node 的等价物。本项目的 MCP server 是 Python 实现，用 `uvx` 是最自然的对应方式；若需要 `npx` 形式，需另写一个 Node 版 server（桥接协议不变，仅 client/server 换成 JS），目前未提供。
 
 重启客户端后，工具列表会出现 `zentrails` 系列（`zen_cmd`、`zen_screenshot` 等 11 个）。`mcp_server.py` 是懒连接：游戏没开时它不会崩，只是调用返回 `[ERR] bridge error`。
 

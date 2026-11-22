@@ -8,10 +8,16 @@ dependencies = [
     "pillow>=10.0",          # 截图缩放，供 vision 模型内联读取
 ]
 
+[project.scripts]
+zen-trails-agent = "zentrails_agent.server:main"
+
 [dependency-groups]
-# 资源逆向（反射/IL 反编译）时按需安装，uv sync 默认会装 dev 组
+# 资源逆向（反射/IL 反编译）时按需安装
 dev = []
 
-[tool.uv]
-# 纯脚本仓库，不需要把自身打包成 wheel
-package = false
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["zentrails_agent"]
