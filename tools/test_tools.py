@@ -67,3 +67,16 @@ if seg_id:
 
 print("\n=== 11. zen_screenshot (inline image) ===")
 show("zen_screenshot", {"name": "tooltest", "return_image": True})
+
+
+print("\n=== 12. High-Level Domain Tools Tests ===")
+show("zen_clear", {})
+show("zen_dark_mode", {"color": "0.02,0.02,0.04,1"})
+show("zen_set_camera", {"distance": -12.5})
+show("zen_create_segment", {"length": 2.2, "speed": 1.0, "color": "gold"})
+show("zen_create_segment", {"length": 1.6, "speed": -2.0, "parent_id": 1000, "color": "cyan"})
+show("zen_hide_arms", {"hide": True})
+show("zen_list_segments", {})
+show("zen_play", {})
+time.sleep(1)
+show("zen_pause", {})

@@ -25,6 +25,7 @@ mcp_server.py  ──(line protocol / TCP 127.0.0.1:5123)──▶  ZenTrailsAge
 
 ```
 ZenTrailsAgent/
+├── AGENTS.md                # AI Agent 创作者指引（几何生成公式、创作工作流与神圣色彩体系）
 ├── src/
 │   ├── AgentBridge.cs       # BepInEx 插件源码（C# 5，Framework csc 编译）
 │   ├── Dump.cs              # 反射 API 转储工具源码（Cecil）
@@ -149,8 +150,8 @@ uv run python tools/package.py --game <路径> # 指定游戏目录（默认 ZEN
 产物：
 
 ```
-dist/ZenTrails-Agent-v0.1.7.zip
-    ZenTrails-Agent-v0.1.7/
+dist/ZenTrails-Agent-v0.2.0.zip
+    ZenTrails-Agent-v0.2.0/
         INSTALL.txt
         game/                              ← 解压覆盖到游戏根目录
             winhttp.dll  doorstop_config.ini  .doorstop_version
@@ -209,14 +210,40 @@ dist/ZenTrails-Agent-v0.1.7.zip
 
 > 关于 `npx`：这是 Node 的等价物。本项目的 MCP server 是 Python 实现，用 `uvx` 是最自然的对应方式；若需要 `npx` 形式，需另写一个 Node 版 server（桥接协议不变，仅 client/server 换成 JS），目前未提供。
 
-重启客户端后，工具列表会出现 `zentrails` 系列（`zen_cmd`、`zen_screenshot` 等 15 个）。`mcp_server.py` 是懒连接：游戏没开时它不会崩，只是调用返回 `[ERR] bridge error`。
+重启客户端后，工具列表会出现 `zentrails` 系列（包含 8 个高阶创作工具、5 个系统与工坊工具、10 个底层反射工具，共 23 个）。`mcp_server.py` 是懒连接：游戏没开时它不会崩，只是调用返回 `[ERR] bridge error`。
 
-## MCP 工具
+> 💡 **AI 创作必读**：关于物理多连杆逆旋摆线生成公式（生命之花、多芒星、日轮耀斑）及创作最佳实践，详见专为 Agent 编写的 **[AGENTS.md](file:///C:/Programming/PyCharm/ZenTrailsAgent/AGENTS.md)**。
+
+## MCP 工具列表 (共 23 个)
+
+### 1. 高阶领域创作工具（AI 创作核心）
 
 | 工具 | 说明 |
 |------|------|
-| `zen_cmd` | 通用桥命令（ping/types/describe/scene/find/get/set/call/coroutine/shot/mouse/drag/clickui/focus/log） |
+| `zen_create_segment` | **高阶创建连杆**：自动补齐 16 个引擎参数、管理 ID、支持 `parent_id` 级联，自动隐藏机械网格并防原生崩溃 |
+| `zen_clear` | **一键清空画布**：安全重置场景，清除所有活跃线段并复位 ID 计数器 |
+| `zen_play` | **启动模拟**：确保解除暂停，运行物理模拟以绘制璀璨流光轨迹 |
+| `zen_pause` | **定格画面**：通过 `TogglePause` 安全暂停物理运动，完好冻结流光画面，绝不抹除已绘制轨迹 |
+| `zen_dark_mode` | **深邃夜空**：停用扰动背景，将主相机背景设为纯净宇宙黑（`0.02,0.02,0.04,1`） |
+| `zen_set_camera` | **视角视距**：设置相机距离（如 `-10.5` 适合曼陀罗，`-12.8` 适合广角复合大魔法阵） |
+| `zen_hide_arms` | **机械臂隐身**：一键隐藏物理连杆粗糙网格，仅在视口中展示纯净天体流光 |
+| `zen_list_segments` | **查询骨架**：结构化查看当前画布全部线段的 ID、父子挂载关系、长度、转速、角度与颜色 |
+
+### 2. 系统与工坊发布工具
+
+| 工具 | 说明 |
+|------|------|
 | `zen_screenshot` | 截图到 `<游戏目录>\shots\*.png`；`return_image=true` 内联返回缩放 JPEG 供 vision 模型直读 |
+| `zen_upload` | **工坊发布**：全自动无 UI 纯净拍摄（隐藏右上角导航栏）并推送到 Steam 创意工坊（30 秒冷却保护） |
+| `zen_save` | 保存当前作品为 .mndla 二进制存档（type: custom/preset） |
+| `zen_load` | 读取 .mndla 存档（反序列化 + SaveAndLoadManager.Load） |
+| `zen_music` | 切换背景禅音（Mandalas/Wavelengths/Footprints/Dreams/Space，缺省切下一首） |
+
+### 3. 底层调试与反射逃生通道
+
+| 工具 | 说明 |
+|------|------|
+| `zen_cmd` | 通用桥协议命令（ping/types/describe/scene/find/get/set/call/coroutine/shot/mouse/drag/clickui/focus/log） |
 | `zen_scene` | 转储场景层级（GameObject + 组件） |
 | `zen_find` | 按类型列出活动实例（带 instance ID 和路径） |
 | `zen_types` | 枚举游戏类型（可过滤子串） |
@@ -226,10 +253,6 @@ dist/ZenTrails-Agent-v0.1.7.zip
 | `zen_call` | 调用普通方法（按参数类型转换） |
 | `zen_coroutine` | 调用协程方法（`IEnumerator`），经 `StartCoroutine` 真正执行 |
 | `zen_clickui` | 进程内点击 UI Button（窗口失焦也能点） |
-| `zen_music` | 切换背景音乐（Mandalas/Wavelengths/Footprints/Dreams/Space，缺省切下一首） |
-| `zen_save` | 保存当前作品为 .mndla 存档（type: custom/preset） |
-| `zen_load` | 读取 .mndla 存档（反序列化 + SaveAndLoadManager.Load） |
-| `zen_upload` | 上传作品到 Steam 创意工坊（真实网络副作用，30 秒冷却，需 Steam 已连接） |
 
 ### 反射选择器约定
 

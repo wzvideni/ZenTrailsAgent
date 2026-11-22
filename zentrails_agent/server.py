@@ -75,6 +75,23 @@ conn = Conn()
 
 # ---- tool registry ----
 
+NAMED_COLORS = {
+    "gold": "1.00,0.85,0.28,1",
+    "cyan": "0.20,0.92,1.00,1",
+    "magenta": "1.00,0.25,0.58,1",
+    "violet": "0.78,0.32,1.00,1",
+    "amber": "1.00,0.60,0.15,1",
+    "white": "1.00,0.98,0.90,1",
+    "rose": "1.00,0.20,0.50,1",
+    "aqua": "0.25,1.00,0.85,1",
+    "red": "1.00,0.15,0.15,1",
+    "blue": "0.15,0.40,1.00,1",
+    "green": "0.20,0.95,0.30,1",
+}
+
+_next_segment_id = 1000
+
+
 TOOLS = [
     {
         "name": "zen_cmd",
@@ -264,6 +281,83 @@ TOOLS = [
             "required": ["title"],
         },
     },
+    # ---- High-Level Domain Tools for AI Creators ----
+    {
+        "name": "zen_create_segment",
+        "description": (
+            "High-level tool to create a new moving pendulum segment with light trails. "
+            "Handles ID generation, parameter formatting, and hides physical arm meshes automatically. "
+            "Set parent_id to chain segments into harmonic epicycles (rosettes, stars, mandalas)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "length": {"type": "number", "description": "Arm length (e.g. 1.5, 2.5)."},
+                "speed": {"type": "number", "description": "Angular velocity. Positive = clockwise, negative = counter-clockwise, 0 = stationary anchor."},
+                "angle": {"type": "number", "description": "Initial starting angle in degrees (default 0.0)."},
+                "parent_id": {"type": ["integer", "null"], "description": "Parent segment ID to attach to. null = root attached to origin (0,0)."},
+                "color": {"type": "string", "description": "RGBA 'r,g,b,a' (0~1) or color name: gold, cyan, magenta, violet, amber, white, rose, aqua, red, green, blue (default 'gold')."},
+                "width": {"type": "number", "description": "Trail ribbon width (default 0.40)."},
+                "glow": {"type": "number", "description": "Glow bloom intensity (default 1.8)."},
+                "draw_trail": {"type": "boolean", "description": "True to draw glowing light trail, False for invisible support/carrier arms (default true)."},
+                "hide_mesh": {"type": "boolean", "description": "Hide physical mechanical arm meshes to show pure celestial trails (default true)."},
+                "id": {"type": "integer", "description": "Optional custom segment ID (auto-assigned if omitted)."},
+            },
+            "required": ["length", "speed"],
+        },
+    },
+    {
+        "name": "zen_clear",
+        "description": "Clear the entire canvas safely. Deletes all active segments and resets state for a new creation.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "zen_play",
+        "description": "Start or resume physics simulation to begin drawing glowing light trails.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "zen_pause",
+        "description": "Safely freeze the simulation with TogglePause. Preserves all drawn light trails in place without erasing.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "zen_dark_mode",
+        "description": "Switch to pure cosmic dark mode: disables distracting background animations and sets camera background to deep cosmic black.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "color": {"type": "string", "description": "Background RGBA color (default '0.02,0.02,0.04,1')."},
+            },
+        },
+    },
+    {
+        "name": "zen_set_camera",
+        "description": "Position camera view distance. Recommended: z=-10.5 for medium mandalas (R<=3.5), z=-12.8 for grand multi-circle matrix (R>4.5).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "distance": {"type": "number", "description": "Camera Z distance (negative, default -12.5)."},
+                "x": {"type": "number", "description": "Camera X position (default 0.0)."},
+                "y": {"type": "number", "description": "Camera Y position (default 0.0)."},
+            },
+        },
+    },
+    {
+        "name": "zen_hide_arms",
+        "description": "Toggle visibility of physical mechanical arm linkages. When hidden, only pure glowing trails are visible.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "hide": {"type": "boolean", "description": "Whether to hide physical arm meshes (default true)."},
+            },
+        },
+    },
+    {
+        "name": "zen_list_segments",
+        "description": "List all active segments in the current artwork with their IDs, parent links, lengths, speeds, and colors.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
 ]
 
 
@@ -436,6 +530,120 @@ def handle_call(name, arguments):
             sid = status_obj.split("id=")[1].split(")")[0]
             st3, status_txt = conn.call("get", f"obj:{sid}", "text")
         return {"content": [{"type": "text", "text": f"{out}\nstatus: {status_txt}"}]}
+
+    # ---- High-Level Domain Tools Handlers ----
+    global _next_segment_id
+
+    if name == "zen_create_segment":
+        length = float(arguments.get("length", 1.0))
+        speed = float(arguments.get("speed", 1.0))
+        angle = float(arguments.get("angle", 0.0))
+        parent_id = arguments.get("parent_id")
+        color_arg = arguments.get("color", "gold")
+        color = NAMED_COLORS.get(str(color_arg).lower(), str(color_arg))
+        width = float(arguments.get("width", 0.40))
+        glow = float(arguments.get("glow", 1.8))
+        draw_trail = bool(arguments.get("draw_trail", True))
+        hide_mesh = bool(arguments.get("hide_mesh", True))
+        custom_id = arguments.get("id")
+
+        if custom_id is not None:
+            sid = int(custom_id)
+            if sid >= _next_segment_id:
+                _next_segment_id = sid + 1
+        else:
+            sid = _next_segment_id
+            _next_segment_id += 1
+
+        is_child = "1" if (parent_id is not None and str(parent_id).lower() != "null") else "0"
+        parent_str = str(parent_id) if (parent_id is not None and str(parent_id).lower() != "null") else "null"
+
+        args = [
+            is_child,
+            str(sid),
+            parent_str,
+            f"{length:.4f}",
+            f"{speed}",
+            f"{angle:.2f}",
+            "1" if draw_trail else "0",
+            f"{width:.2f}",
+            str(color),
+            "0,0,0",
+            "0",
+            f"{glow:.2f}",
+            "0",
+            "null",
+            "0",
+            "0"
+        ]
+        st, out = conn.call("call", "type:ClickAndDrag", "CreateNewSegment", *args)
+        if hide_mesh:
+            conn.call("set", "path:/ClickAndDragMaster/Segment(Clone)", "hideMesh", "true")
+        return {"content": [{"type": "text", "text": f"Created segment ID={sid} (length={length}, speed={speed}, angle={angle}, parent={parent_str}, trail={draw_trail})"}]}
+
+    if name == "zen_clear":
+        conn.call("set", "type:ClickAndDrag", "paused", "false")
+        st, out = conn.call("call", "type:ClickAndDrag", "DeleteAll")
+        _next_segment_id = 1000
+        return {"content": [{"type": "text", "text": "Canvas cleared. All segments deleted."}]}
+
+    if name == "zen_play":
+        conn.call("set", "type:ClickAndDrag", "paused", "false")
+        st, out_seq = conn.call("get", "type:ClickAndDrag", "sequencing")
+        if "False" in out_seq:
+            conn.call("call", "type:ClickAndDrag", "StartOrStop")
+        return {"content": [{"type": "text", "text": "Simulation running. Drawing light trails."}]}
+
+    if name == "zen_pause":
+        st, out_seq = conn.call("get", "type:ClickAndDrag", "sequencing")
+        if "True" in out_seq:
+            conn.call("call", "type:ClickAndDrag", "TogglePause")
+        return {"content": [{"type": "text", "text": "Simulation paused. Light trails frozen in place without erasing."}]}
+
+    if name == "zen_dark_mode":
+        bg_col = arguments.get("color", "0.02,0.02,0.04,1")
+        st, out = conn.call("find", "Background")
+        if st == "OK" and len(out.splitlines()) > 1:
+            oid = out.splitlines()[1].split()[1]
+            st, bg = conn.call("get", f"obj:{oid}", "currentBG")
+            if "id=" in bg:
+                bg_id = bg.strip().split("id=")[1].rstrip(")")
+                conn.call("call", f"obj:{bg_id}", "SetActive", "false")
+        st, out = conn.call("find", "Camera")
+        if st == "OK" and len(out.splitlines()) > 1:
+            cam = out.splitlines()[1].split()[1]
+            conn.call("set", f"obj:{cam}", "backgroundColor", bg_col)
+            conn.call("set", f"obj:{cam}", "clearFlags", "SolidColor")
+        return {"content": [{"type": "text", "text": f"Dark mode activated. Background color set to {bg_col}."}]}
+
+    if name == "zen_set_camera":
+        dist = arguments.get("distance", -12.5)
+        x = arguments.get("x", 0.0)
+        y = arguments.get("y", 0.0)
+        conn.call("set", "type:CameraPosition", "targetPos", f"{x},{y},{dist}")
+        return {"content": [{"type": "text", "text": f"Camera positioned at ({x}, {y}, {dist})."}]}
+
+    if name == "zen_hide_arms":
+        hide = bool(arguments.get("hide", True))
+        conn.call("set", "type:SettingsPanel", "hideSegments", "true" if hide else "false")
+        return {"content": [{"type": "text", "text": f"Physical arm meshes {'hidden' if hide else 'shown'}."}]}
+
+    if name == "zen_list_segments":
+        st, segs = conn.call("get", "type:ClickAndDrag", "segments")
+        if "Count = 0" in segs or "segments = []" in segs:
+            return {"content": [{"type": "text", "text": "No segments active on canvas."}]}
+        ids = [part.split(')')[0] for part in segs.split('Segment(Clone)(id=')[1:]]
+        lines = [f"Active segments count: {len(ids)}"]
+        for oid in ids:
+            st, sid_ = conn.call("get", f"obj:{oid}", "ID")
+            st, pid_ = conn.call("get", f"obj:{oid}", "parentID")
+            st, len_ = conn.call("get", f"obj:{oid}", "length")
+            st, spd_ = conn.call("get", f"obj:{oid}", "speed")
+            st, ang_ = conn.call("get", f"obj:{oid}", "angle")
+            st, tr_ = conn.call("get", f"obj:{oid}", "drawTrail")
+            st, col_ = conn.call("get", f"obj:{oid}", "color")
+            lines.append(f"  - ID={sid_.split('=')[1].strip()} Parent={pid_.split('=')[1].strip()} Length={len_.split('=')[1].strip()} Speed={spd_.split('=')[1].strip()} Angle={ang_.split('=')[1].strip()} Trail={tr_.split('=')[1].strip()} Color={col_.split('=')[1].strip()}")
+        return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
     return rpc_error(None, -32601, f"unknown tool {name}")
 
