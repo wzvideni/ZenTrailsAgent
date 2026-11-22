@@ -393,15 +393,19 @@ def handle_call(name, arguments):
         if not title:
             return {"content": [{"type": "text", "text": "title required"}]}
         st, out = conn.call("get", "type:Uploader", "designTitle")
-        tid = out.split("id=")[1].rstrip(")")
+        tid = out.split("id=")[1].split(")")[0]
         conn.call("set", f"obj:{tid}", "text", title)
         if desc:
             st, out = conn.call("get", "type:Uploader", "description")
-            did = out.split("id=")[1].rstrip(")")
+            did = out.split("id=")[1].split(")")[0]
             conn.call("set", f"obj:{did}", "text", desc)
         conn.call("call", "type:Uploader", "TakeScreenshot")
         st, out = conn.call("call", "type:Uploader", "Upload")
-        st2, status_txt = conn.call("get", "type:Uploader", "statusText")
+        st2, status_obj = conn.call("get", "type:Uploader", "statusText")
+        status_txt = status_obj
+        if "id=" in status_obj:
+            sid = status_obj.split("id=")[1].split(")")[0]
+            st3, status_txt = conn.call("get", f"obj:{sid}", "text")
         return {"content": [{"type": "text", "text": f"{out}\nstatus: {status_txt}"}]}
 
     return rpc_error(None, -32601, f"unknown tool {name}")
