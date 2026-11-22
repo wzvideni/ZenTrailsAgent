@@ -1,5 +1,12 @@
 """Draw by real mouse drag, with focus handled properly, then verify game state."""
-import time, subprocess
+import os
+import sys
+import time
+import subprocess
+
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 from client import Bridge
 
 def alive():

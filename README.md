@@ -35,19 +35,23 @@ ZenTrailsAgent/
 │   └── server.py            # MCP server（stdio / JSON-RPC 2.0，15 个工具）
 ├── docs/
 │   └── 安装说明.txt          # 随发布包分发的安装/接入说明
+├── demos/                   # 演示样例库
+│   ├── astral_dodecagram_magic_circle.py # 演示：十二重天体禁咒·终焉十二芒星与群星宿命大魔法阵
+│   ├── flower_of_life_rosette.py         # 演示：折扇星芒与生命之花圣轮（-2逆速谐振）
+│   ├── demo_draw.py         # 演示：程序化画线段
+│   ├── demo_mandala.py      # 演示：黄金角曼陀罗（36 段）
+│   └── demo_magic_circle.py # 演示：六芒星魔法阵（标准外摆线花瓣 + 内圈）
 ├── tools/
+│   ├── probes/              # 诊断与探针脚本（check / draw / probe）
 │   ├── build_plugin.ps1     # 编译 + 部署 + 重启游戏（一键）
 │   ├── package.py           # 打发布包（编译插件 + 组装 MCP 服务 + 安装说明 → zip）
 │   ├── paths.py             # 统一路径约定（仓库内相对定位，游戏目录可 ZEN_TRAILS_HOME 覆盖）
 │   ├── test_tools.py        # MCP 工具端到端测试
 │   ├── test_clickui.py      # UI 点击端到端测试
-│   ├── test_upload.py       # 上传回归测试（验证先 Open 面板的修复）
+│   ├── test_upload.py       # 上传回归测试（验证先 Open 面板与截屏完整性的修复）
 │   └── lib/                 # 逆向工具运行时依赖（从游戏拷贝，不进 git）
 ├── client.py                # 兼容 shim（等价于 zentrails_agent.client）
 ├── mcp_server.py            # 兼容 shim（等价于 zentrails_agent.server:main）
-├── demo_draw.py             # 演示：程序化画线段
-├── demo_mandala.py          # 演示：黄金角曼陀罗（36 段）
-├── demo_magic_circle.py     # 演示：魔法阵（外摆线花瓣 + 内圈）
 ├── dist/                    # 编译产物 + 发布 zip（不进 git）
 ├── dumps/                   # 逆向中间产物（不进 git）
 ├── pyproject.toml           # uv 项目管理（含 [project.scripts] 入口）
@@ -237,7 +241,7 @@ dist/ZenTrails-AI控制-v0.1.3.zip
 2. **合成鼠标事件 Unity 不接收**：OS 级 `SendInput`/`mouse_event` 点击无效；「进程内点击 UI 按钮」（`zen_clickui`）和「直接调用游戏方法」都可靠。
 3. **协程方法**（返回 `IEnumerator`）要用 `zen_coroutine` 才真正执行；普通 `static void` 入口（如 `GameManager.BeginMainGame`）用 `zen_call`。
 4. **`gameState` 字段可能是残留值**，以 `zen_scene` 看到的实际场景为准（配合截图最可靠）。
-5. **上传前必须先 `Open()` Uploader 面板**。游戏 `Uploader.ieTakeScreenshot` 协程结束时会把面板 `localScale` 硬设回 1 却绕过 `OpenWithCurtain` 状态机，若面板未先 `Open()`（`open=false`），上传成功后的关闭逻辑 `if(open){Close()}` 失效，留下无法关闭的全屏黑框。`zen_upload` 工具已内建先 `Open()` 的调用顺序（0.1.3 起），回归测试见 `tools/test_upload.py`。
+5. **上传必须先 `Open()` 面板并确保流光已生成**。游戏 `Uploader.ieTakeScreenshot` 协程结束时会把面板 `localScale` 硬设回 1 却绕过 `OpenWithCurtain` 状态机，若面板未先 `Open()`（`open=false`），上传成功后的关闭逻辑 `if(open){Close()}` 失效，留下无法关闭的全屏黑框；此外 `ieTakeScreenshot` 内部有 1.0 秒延迟且依赖当前相机画面中的流光，若在未播放状态下截屏会上传空预览图。`zen_upload` 工具现已内建：若处于未播放态自动运转定格流光 + 先 `Open()` + 触发截屏后严格等待协程编码完成（2.0s）再提交 `Upload()`。回归测试见 `tools/test_upload.py`。
 
 ## 上传验证（已实测）
 
@@ -257,7 +261,7 @@ uv run python tools/test_upload.py                 # 完整上传 + 等待面板
 ## 演示：黄金角曼陀罗
 
 ```powershell
-& ".\.venv\Scripts\python.exe" demo_mandala.py
+& ".\.venv\Scripts\python.exe" demos/demo_mandala.py
 ```
 
 等价于用 MCP 工具循环执行 `zen_call`：

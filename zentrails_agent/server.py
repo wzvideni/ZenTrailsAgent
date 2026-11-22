@@ -395,6 +395,19 @@ def handle_call(name, arguments):
         desc = arguments.get("description", "")
         if not title:
             return {"content": [{"type": "text", "text": "title required"}]}
+
+        # 确保画面处于运行并绘出流光轨迹的状态：
+        # 游戏中的 TrailRenderer 只在运转时产生轨迹。若处于刚加载的静态编辑态（sequencing=false），
+        # 画面上没有任何流光，必须先启动运转让轨迹画满，并用 TogglePause 定格，才能截取到真实绚烂的画面。
+        st_seq, out_seq = conn.call("get", "type:ClickAndDrag", "sequencing")
+        if "False" in out_seq:
+            conn.call("set", "type:ClickAndDrag", "paused", "false")
+            conn.call("call", "type:ClickAndDrag", "StartOrStop")
+            # 运转绘制周期（约 18-20 秒闭合），若只是简单图案至少需 12 秒
+            time.sleep(18.0)
+            conn.call("call", "type:ClickAndDrag", "TogglePause")
+            time.sleep(0.8)
+
         # 先打开 Uploader 面板，建立正确的 OpenWithCurtain 状态（open=true）。
         # 否则直接调 TakeScreenshot 会在截图协程结束时把面板 localScale 硬设为 1
         # 却不置 open=true，导致上传成功后 if(open){Close()} 关闭逻辑失效，
@@ -408,6 +421,9 @@ def handle_call(name, arguments):
             did = out.split("id=")[1].split(")")[0]
             conn.call("set", f"obj:{did}", "text", desc)
         conn.call("call", "type:Uploader", "TakeScreenshot")
+        # ieTakeScreenshot 包含 WaitForEndOfFrame + WaitForSeconds(1.0f) 延迟，
+        # 必须等待至少 2 秒以确保 PreviewImage.jpg 完成编码写入，否则会上传空预览图。
+        time.sleep(2.0)
         st, out = conn.call("call", "type:Uploader", "Upload")
         st2, status_obj = conn.call("get", "type:Uploader", "statusText")
         status_txt = status_obj

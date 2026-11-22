@@ -7,7 +7,13 @@
     (1+s) = R1/r  ->  s = R1/r - 1, 即 r = R1/(1+s)
   花瓣数 = R/r = s。
 """
+import os
+import sys
 import time
+
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 from client import Bridge
 
 S = 6  # 花瓣数（六芒星）
