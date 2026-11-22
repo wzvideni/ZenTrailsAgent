@@ -43,7 +43,7 @@ def rpc_error(_id, code, message):
 class Conn:
     def __init__(self):
         self._b = None
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
     def bridge(self):
         with self._lock:
@@ -52,19 +52,22 @@ class Conn:
             return self._b
 
     def call(self, name, *args):
-        # retry once if the connection dropped (e.g. game restarted)
-        for attempt in (0, 1):
-            try:
-                b = self.bridge()
-                status, out = b.cmd(name, *args)
-                return status, out
-            except Exception as e:
-                if attempt == 0:
-                    self._b = None
-                    time.sleep(0.5)
-                else:
-                    return "ERR", f"bridge error: {type(e).__name__}: {e}"
-        return "ERR", "unreachable"
+        # 串行化所有调用：单条 TCP 连接不能并发收发，否则响应会交叉错位。
+        # 用 RLock 允许 call -> bridge 的嵌套加锁。
+        with self._lock:
+            # retry once if the connection dropped (e.g. game restarted)
+            for attempt in (0, 1):
+                try:
+                    b = self.bridge()
+                    status, out = b.cmd(name, *args)
+                    return status, out
+                except Exception as e:
+                    if attempt == 0:
+                        self._b = None
+                        time.sleep(0.5)
+                    else:
+                        return "ERR", f"bridge error: {type(e).__name__}: {e}"
+            return "ERR", "unreachable"
 
 
 conn = Conn()
