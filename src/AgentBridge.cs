@@ -330,25 +330,30 @@ namespace ZenTrailsAgent
 
         static IEnumerable<UnityEngine.Object> AllObjects(Type t)
         {
-            var arr = Resources.FindObjectsOfTypeAll(t);
+            UnityEngine.Object[] arr;
+            try { arr = Resources.FindObjectsOfTypeAll(t); }
+            catch (Exception) { yield break; }   // 非 UnityEngine.Object 派生类型（纯静态类）会抛
+            if (arr == null) yield break;
             foreach (var o in arr)
             {
-                var comp = o as Component;
-                if (comp != null)
+                bool keep;
+                try
                 {
-                    if (!comp.gameObject.scene.IsValid()) continue;
-                    if ((comp.hideFlags & HideFlags.NotEditable) != 0) continue;
-                    yield return o;
-                    continue;
+                    keep = o != null;   // Unity 重载 ==：同时过滤 null 与已销毁对象
+                    if (keep)
+                    {
+                        var comp = o as Component;
+                        if (comp != null)
+                            keep = comp.gameObject.scene.IsValid() && (comp.hideFlags & HideFlags.NotEditable) == 0;
+                        else
+                        {
+                            var go = o as GameObject;
+                            if (go != null) keep = go.scene.IsValid();
+                        }
+                    }
                 }
-                var go = o as GameObject;
-                if (go != null)
-                {
-                    if (!go.scene.IsValid()) continue;
-                    yield return o;
-                    continue;
-                }
-                yield return o;
+                catch (Exception) { keep = false; }   // 已销毁/不可访问对象，跳过
+                if (keep) yield return o;
             }
         }
 
@@ -456,29 +461,36 @@ namespace ZenTrailsAgent
             return g != null && g.IsStatic;
         }
 
-        static string Fmt(object v)
+        static string Fmt(object v) { return Fmt(v, 0); }
+
+        static string Fmt(object v, int depth)
         {
             if (v == null) return "null";
+            if (depth > 3) return "...";
             var uo = v as UnityEngine.Object;
             if (uo != null) return uo.name + "(id=" + uo.GetInstanceID() + ")";
             if (v is string) return (string)v;
+            var t = v.GetType();
+            // Unity 值类型（Color/Vector*/Quaternion/Rect…）直接 ToString。
+            // 不能反射遍历：例如 Color.linear / Color.gamma 会返回新的 Color，
+            // 属性遍历会无限递归导致栈溢出，直接崩掉 Unity 进程。
+            if (t.Namespace == "UnityEngine" && t.IsValueType) return v.ToString();
             if (v is IEnumerable && !(v is string))
             {
                 var parts = new List<string>();
                 int i = 0;
-                foreach (var e in (IEnumerable)v) { parts.Add(Fmt(e)); if (++i >= 40) { parts.Add("..."); break; } }
+                foreach (var e in (IEnumerable)v) { parts.Add(Fmt(e, depth + 1)); if (++i >= 40) { parts.Add("..."); break; } }
                 return "[" + string.Join(", ", parts.ToArray()) + "]";
             }
-            var t = v.GetType();
             if (t.IsPrimitive || t.IsEnum || v is decimal) return v.ToString();
             var sb = new StringBuilder();
             sb.Append(t.Name).Append("{");
             foreach (var f in t.GetFields(BindingFlags.Public | BindingFlags.Instance).Take(20))
-                sb.Append(f.Name).Append("=").Append(Fmt(f.GetValue(v))).Append(" ");
+                sb.Append(f.Name).Append("=").Append(Fmt(f.GetValue(v), depth + 1)).Append(" ");
             foreach (var p in t.GetProperties(BindingFlags.Public | BindingFlags.Instance).Take(20))
             {
                 if (!p.CanRead || p.GetIndexParameters().Length > 0) continue;
-                try { sb.Append(p.Name).Append("=").Append(Fmt(p.GetValue(v, null))).Append(" "); }
+                try { sb.Append(p.Name).Append("=").Append(Fmt(p.GetValue(v, null), depth + 1)).Append(" "); }
                 catch (Exception) { }
             }
             sb.Append("}");
