@@ -420,10 +420,16 @@ def handle_call(name, arguments):
             st, out = conn.call("get", "type:Uploader", "description")
             did = out.split("id=")[1].split(")")[0]
             conn.call("set", f"obj:{did}", "text", desc)
+
+        # 核心修复：游戏 Uploader 的 ieTakeScreenshot 协程在截屏时忘记隐藏 Curtain 幕布，
+        # 导致截取出来的缩略图被全屏灰框 Curtain 彻底遮挡。
+        # 必须在截屏前将 Curtain scale 设为 0，主相机才能拍到真正的流光画面！
+        conn.call("set", "type:Uploader", "sOpener.curtain.localScale", "0,0,0")
         conn.call("call", "type:Uploader", "TakeScreenshot")
         # ieTakeScreenshot 包含 WaitForEndOfFrame + WaitForSeconds(1.0f) 延迟，
         # 必须等待至少 2 秒以确保 PreviewImage.jpg 完成编码写入，否则会上传空预览图。
         time.sleep(2.0)
+        conn.call("set", "type:Uploader", "sOpener.curtain.localScale", "1,1,1")
         st, out = conn.call("call", "type:Uploader", "Upload")
         st2, status_obj = conn.call("get", "type:Uploader", "statusText")
         status_txt = status_obj
