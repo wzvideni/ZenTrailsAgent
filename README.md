@@ -2,7 +2,7 @@
 
 让 AI Agent 通过 **MCP（Model Context Protocol）** 控制 Steam 游戏《Zen Trails》（Unity 2019.1 / Mono）。AI 直接调用游戏自身的 C# API 来绘制、修改、播放作品，并可用截图做视觉反馈。
 
-**结论：可行且已落地** —— 已实测通过 MCP 工具进入编辑场景、创建线段与分支图案、截图验证，全链路贯通。
+提供基于 BepInEx 注入的进程内控制桥接与一套完整的标准 MCP 工具，支持进入编辑场景、程序化构建线段与复杂几何阵列、动态参数调优、纯净截图验证及 Steam 创意工坊直传。
 
 ## 架构
 
@@ -36,7 +36,8 @@ ZenTrailsAgent/
 ├── docs/
 │   └── INSTALL.txt          # 随发布包分发的安装/接入说明
 ├── demos/                   # 演示样例库
-│   ├── astral_dodecagram_magic_circle.py # 演示：十二重天体禁咒·终焉十二芒星与群星宿命大魔法阵
+│   ├── celestial_multi_matrix_magic_circle.py # 演示：天衍神圣共鸣·万象生命之花复合大魔法阵（143段高阶流光）
+│   ├── astral_dodecagram_magic_circle.py # 演示：十二重天体禁咒·终焉十二芒星与群星宿命大魔法阵（87段）
 │   ├── flower_of_life_rosette.py         # 演示：折扇星芒与生命之花圣轮（-2逆速谐振）
 │   ├── demo_draw.py         # 演示：程序化画线段
 │   ├── demo_mandala.py      # 演示：黄金角曼陀罗（36 段）
@@ -46,6 +47,7 @@ ZenTrailsAgent/
 │   ├── build_plugin.ps1     # 编译 + 部署 + 重启游戏（一键）
 │   ├── package.py           # 打发布包（编译插件 + 组装 MCP 服务 + 安装说明 → zip）
 │   ├── paths.py             # 统一路径约定（仓库内相对定位，游戏目录可 ZEN_TRAILS_HOME 覆盖）
+│   ├── dump_uploader.ps1    # IL 分析与反编译辅助工具
 │   ├── test_tools.py        # MCP 工具端到端测试
 │   ├── test_clickui.py      # UI 点击端到端测试
 │   ├── test_upload.py       # 上传回归测试（验证先 Open 面板与截屏完整性的修复）
@@ -101,7 +103,7 @@ tools\Dump.exe "<游戏>\Zen Trails_Data\Managed\Assembly-CSharp.dll" dumps\api.
 ### 1. 安装 Python 依赖
 
 ```powershell
-cd C:\Programming\PyCharm\ZenTrailsAgent
+cd path/to/ZenTrailsAgent
 uv sync          # 创建 .venv、安装 Pillow，并把本包作为可执行命令 zen-trails-agent 装入 venv
 ```
 
@@ -138,7 +140,7 @@ Copy-Item dist\ZenTrailsAgent.dll "<游戏>\BepInEx\plugins\" -Force
 一键打出「可直接解压分发」的 zip：编译插件 + 组装 MCP 服务 + 写入安装说明。
 
 ```powershell
-cd C:\Programming\PyCharm\ZenTrailsAgent
+cd path/to/ZenTrailsAgent
 uv run python tools/package.py               # 编译插件 + 打 zip
 uv run python tools/package.py --no-rebuild  # 用已有 dist/ZenTrailsAgent.dll，不重编
 uv run python tools/package.py --game <路径> # 指定游戏目录（默认 ZEN_TRAILS_HOME / Steam 常见位置）
@@ -173,7 +175,7 @@ dist/ZenTrails-Agent-v0.1.7.zip
     "zentrails": {
       "command": "uvx",
       "args": [
-        "--from", "C:\\Programming\\PyCharm\\ZenTrailsAgent",
+        "--from", "C:\\path\\to\\ZenTrailsAgent",
         "zen-trails-agent"
       ]
     }
@@ -189,7 +191,7 @@ dist/ZenTrails-Agent-v0.1.7.zip
 {
   "mcpServers": {
     "zentrails": {
-      "command": "C:\\Programming\\PyCharm\\ZenTrailsAgent\\.venv\\Scripts\\zen-trails-agent.exe",
+      "command": "C:\\path\\to\\ZenTrailsAgent\\.venv\\Scripts\\zen-trails-agent.exe",
       "args": []
     }
   }
@@ -241,27 +243,44 @@ dist/ZenTrails-Agent-v0.1.7.zip
 2. **合成鼠标事件 Unity 不接收**：OS 级 `SendInput`/`mouse_event` 点击无效；「进程内点击 UI 按钮」（`zen_clickui`）和「直接调用游戏方法」都可靠。
 3. **协程方法**（返回 `IEnumerator`）要用 `zen_coroutine` 才真正执行；普通 `static void` 入口（如 `GameManager.BeginMainGame`）用 `zen_call`。
 4. **`gameState` 字段可能是残留值**，以 `zen_scene` 看到的实际场景为准（配合截图最可靠）。
-5. **上传必须先 `Open()` 面板并确保流光已生成**。游戏 `Uploader.ieTakeScreenshot` 协程结束时会把面板 `localScale` 硬设回 1 却绕过 `OpenWithCurtain` 状态机，若面板未先 `Open()`（`open=false`），上传成功后的关闭逻辑 `if(open){Close()}` 失效，留下无法关闭的全屏黑框；此外 `ieTakeScreenshot` 内部有 1.0 秒延迟且依赖当前相机画面中的流光，若在未播放状态下截屏会上传空预览图。`zen_upload` 工具现已内建：若处于未播放态自动运转定格流光 + 先 `Open()` + 触发截屏后严格等待协程编码完成（2.0s）再提交 `Upload()`。回归测试见 `tools/test_upload.py`。
+5. **上传必须先 `Open()` 等待展开就绪，并触发官方截图按钮**。游戏原生 `Uploader.ieTakeScreenshot` 会在截图时自动隐藏右上角 `NavigationPanel` 导航栏与设置面板，截取完全零 UI 的画面并编码写入 `PreviewImage.jpg`；若面板未先 `Open()` 或未等待展开完成，会受到 `OpenWithCurtain` 动画影响导致把上传弹窗本身拍入画面；若在静态编辑态（未运转）截图则会因流光未生成而截得黑屏。`zen_upload` 工具现已内建完整时序：若处于未播放态自动运转定格流光 + 先 `Open()` 并等待展开就绪 + 触发官方截图按钮收起 UI 并完成编码 + 提交 `Upload()`。回归测试见 `tools/test_upload.py`。
 
-## 上传验证（已实测）
+## Steam 创意工坊自动化发布
 
-`zen_upload` 完整链路已在真实 Steam 创意工坊上验证通过（「旋转花瓣」作品，作者 DC）：
+`zen_upload` 工具打通了从「流光生成、无 UI 纯净定格截图、元数据写入」到「Steam UGC 提交发布」的全流程：
 
-1. `zen_load` 加载 26 段「旋转花瓣」存档 → `zen_upload title=旋转花瓣` → 状态「上传中......」→「上传成功!耶!!」。
-2. 上传后面板自动收起（`localScale=(0,1,1)`、`sOpener.open=false`），`gameState` 回到 `BUILDING`，无残留黑框 —— 修复生效。
-3. CommunityHub 列表可见作者 DC 的多条「旋转花瓣」条目（真实发布成功）。
+1. 自动检测模拟器状态，未运行时先运转绘制完整流光轨迹并使用 `TogglePause` 安全定格；
+2. 展开上传面板，调用官方截图管线隐藏右上角导航栏与所有多余 UI，生成纯净 1080P `PreviewImage.jpg`；
+3. 提交至 Steam 创意工坊并在完成后自动关闭弹窗恢复场景状态。
 
 回归测试：
 
 ```powershell
-uv run python tools/test_upload.py --skip-upload   # 只验证 Open/Close 状态机，不真上传
-uv run python tools/test_upload.py                 # 完整上传 + 等待面板自动收起（注意 30 秒冷却）
+uv run python tools/test_upload.py --skip-upload   # 只验证 Open/Close 状态机，不发送真实上传
+uv run python tools/test_upload.py                 # 完整上传流程测试（含 30 秒冷却保护与自动收起断言）
 ```
 
-## 演示：黄金角曼陀罗
+## 几何艺术演示案例
+
+仓库 `demos/` 目录下提供了多个可直接运行的高阶几何艺术与魔法阵案例：
+
+| 案例脚本 | 节点数 | 特性与几何美学 |
+|---------|-------|---------------|
+| `demos/celestial_multi_matrix_magic_circle.py` | 143 段 | **天衍神圣共鸣·万象生命之花复合大魔法阵**：中枢十二瓣生命之花圣轮 + 六极星位卫星子法阵群（三曜真灵阵 / 四象星芒阵）+ 24 芒日轮耀斑外冠 |
+| `demos/astral_dodecagram_magic_circle.py` | 87 段 | **天体禁咒·终焉十二芒星与群星宿命大魔法阵**：十二重同心天轨金界 + 双重交错十二芒星 + 曼陀罗莲华与八芒秘法结界 |
+| `demos/flower_of_life_rosette.py` | 12 段 | **折扇星芒与生命之花圣轮**：6 根扇骨放射排布，子臂以 -2 倍速逆向谐振，划出倾角递增的生命之花金华圣轮 |
+| `demos/demo_mandala.py` | 36 段 | **黄金角曼陀罗**：长度逐级递减、角度按黄金角 137.5° 螺旋排布、HSV 全彩渐变 |
+| `demos/demo_magic_circle.py` | 24 段 | **六芒星外摆线魔法阵**：经典几何外摆线花瓣与多重内外防护圈 |
+| `demos/demo_draw.py` | 4 段 | **基础测试**：简单单链连杆运动与轨迹记录 |
+
+运行示例：
 
 ```powershell
-& ".\.venv\Scripts\python.exe" demos/demo_mandala.py
+# 运行天衍万象复合大魔法阵演示
+uv run python demos/celestial_multi_matrix_magic_circle.py
+
+# 运行经典黄金角曼陀罗
+uv run python demos/demo_mandala.py
 ```
 
 等价于用 MCP 工具循环执行 `zen_call`：
@@ -273,8 +292,6 @@ zen_call  selector=type:ClickAndDrag  method=CreateNewSegment
         drawTrail, trailWidth, color, pos, layerOrder,
         glow, isGradient, gradient, centerCam, openInfoP
 ```
-
-36 段：长度递减、角度按黄金角 137.5° 旋转、HSV 渐变色、逐段 `parentID` 串成链，最终截图 `shots/mandala.png` 存证。
 
 ## 端口冲突
 
