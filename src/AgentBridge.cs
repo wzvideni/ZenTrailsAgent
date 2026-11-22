@@ -267,9 +267,19 @@ namespace ZenTrailsAgent
         static Type ResolveType(string name)
         {
             if (string.IsNullOrEmpty(name)) return null;
-            var exact = AllTypes().FirstOrDefault(t => t.FullName == name || t.Name == name);
+            var all = AllTypes().ToList();
+            // 1. 精确 FullName
+            var exact = all.FirstOrDefault(t => t.FullName == name);
             if (exact != null) return exact;
-            return AllTypes().FirstOrDefault(t => (t.FullName ?? t.Name).IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0);
+            // 2. Name 匹配；多个同名类型（如 Background/Button 在 UnityEngine.* 里也有）时
+            //    优先游戏主程序集 Assembly-CSharp
+            var byName = all.Where(t => t.Name == name).ToList();
+            if (byName.Count == 1) return byName[0];
+            var game = byName.FirstOrDefault(t => t.Assembly.GetName().Name == "Assembly-CSharp");
+            if (game != null) return game;
+            if (byName.Count > 0) return byName[0];
+            // 3. 模糊包含
+            return all.FirstOrDefault(t => (t.FullName ?? t.Name).IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0);
         }
 
         static Result Types(string[] args)
