@@ -1,41 +1,22 @@
-"""魔法阵 v2 —— 真正的六芒星（两个三角形链）+ 内外双圆环 + 中心短辐条。
+"""魔法阵 v3 —— 纯旋转生成的动态对称图案（Zen Trails 正确玩法）。
 
-几何：
-  等边三角形外接圆半径 R，边长 = sqrt(3)*R ≈ 1.732R。
-  链：根线段（中心->顶点A, len=R）-> 子段 A->B（相对转150°）-> B->C（转120°）-> C->A（转120°）闭合。
+结构：外圆 + 内圆 + 6 重对称旋轮线（6 父 + 6 子）。
+所有线段 speed>0，播放时旋转，端点 trail 叠加成对称花纹；本体 LineRenderer 全隐藏。
 """
-import math
 import time
 from client import Bridge
 
-EDGE = 1.7320508  # sqrt(3)
 
-
-def make_seg(b, is_child, sid, parent, length, speed, angle, color, width="0.35"):
-    args = [is_child, sid, parent, f"{length:.3f}", f"{speed}", f"{angle:.1f}",
+def make_seg(b, is_child, sid, parent, length, speed, angle, color, width="0.5"):
+    args = [is_child, sid, parent, f"{length:.2f}", f"{speed}", f"{angle:.1f}",
             "1", width, color, "0,0,0", "0", "1.3", "0", "null", "0", "0"]
-    return b.cmd("call", "type:ClickAndDrag", "CreateNewSegment", *args)
-
-
-def triangle(b, root_id, root_angle, R, color):
-    """一个三角形：根 + 3 条弦（首条相对根转 150°，之后各转 120°）。"""
-    edge = EDGE * R
-    st, out = make_seg(b, 0, root_id, "null", R, 0, root_angle, color)
+    st, out = b.cmd("call", "type:ClickAndDrag", "CreateNewSegment", *args)
     assert st == "OK", out
-    parent = root_id
-    for i, a in enumerate([150, 120, 120]):
-        sid = root_id + 1 + i
-        st, out = make_seg(b, 1, sid, parent, edge, 0, a, color)
-        assert st == "OK", out
-        parent = sid
+    return out  # 返回 out 文本（含 "id=..."），供 disable_body 解析
 
 
 def disable_body(b, call_out):
-    """圆环线段的本体是一条从中心到圆周的“半径指针”，会横穿整个图案。
-
-    禁用它的 LineRenderer（TrailRenderer 独立，不受影响），trail 照常画圆。
-    call_out: CreateNewSegment 的返回文本，从中解析 instance id。
-    """
+    """禁用线段本体（半径指针），只留 TrailRenderer 画轨迹。"""
     iid = call_out.split("id=")[1].rstrip(")")
     st, o = b.cmd("get", f"obj:{iid}", "lineR")
     line_id = o.strip().split("id=")[1].rstrip(")")
@@ -50,34 +31,23 @@ def main():
     time.sleep(0.6)
 
     n = 0
-    # 六芒星：两个三角形（外接圆 R=3.4），紫色 + 金色
-    triangle(b, 9000, 0, 3.4, "0.55,0.32,0.72,1");  n += 4
-    triangle(b, 9100, 60, 3.4, "1.0,0.78,0.42,1");  n += 4
+    # 外圆 + 内圆
+    out = make_seg(b, 0, 8000, "null", 5.0, 1, 0, "0.40,0.50,0.90,1");  disable_body(b, out); n += 1
+    out = make_seg(b, 0, 8001, "null", 2.0, 1, 0, "0.40,0.50,0.90,1");  disable_body(b, out); n += 1
 
-    # 中心短辐条（内圆内的装饰，洋红）
+    # 6 重对称旋轮线：父线段（等距同速）+ 子线段（相对父转，形成花瓣）
     for i in range(6):
-        st, out = make_seg(b, 0, 9300 + i, "null", 0.9, 0, i * 60 + 30, "0.82,0.3,0.6,1")
-        assert st == "OK", out
-        n += 1
-
-    # 双圆环（旋转线段，speed=1 转出圆）：外圆蓝、内圆青
-    st, out = make_seg(b, 0, 9400, "null", 5.0, 1, 0, "0.32,0.45,0.85,1", "0.45")
-    assert st == "OK", out
-    disable_body(b, out)
-    st, out = make_seg(b, 0, 9401, "null", 1.7, 1, 0, "0.3,0.85,0.8,1", "0.45")
-    assert st == "OK", out
-    disable_body(b, out)
-    n += 2
+        ang = i * 60
+        out = make_seg(b, 0, 8100 + i, "null", 3.4, 1, ang, "0.62,0.32,0.72,1");  disable_body(b, out); n += 1
+        out = make_seg(b, 1, 8200 + i, 8100 + i, 1.4, 1, 0, "0.95,0.70,0.30,1");  disable_body(b, out); n += 1
 
     print(f"created {n} segments")
     time.sleep(0.8)
 
-    # 播放：StartOrStop -> 所有线段 BeginSequencing，圆环线段转出圆
+    # 播放：所有线段开始旋转，trail 累积成对称花纹
     print(b.cmd("call", "type:ClickAndDrag", "StartOrStop")[1].strip())
-
-    # speed=1 -> 每秒约 70°，外圆一圈约 5.2s；等两圈保险
-    time.sleep(11)
-    print(b.cmd("shot", "magic_circle_v2")[1].strip())
+    time.sleep(22)
+    print(b.cmd("shot", "magic_circle_v3")[1].strip())
     b.close()
 
 
