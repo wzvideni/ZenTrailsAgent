@@ -213,6 +213,54 @@ TOOLS = [
             "required": ["path"],
         },
     },
+    {
+        "name": "zen_music",
+        "description": "Switch background music. Tracks: Mandalas, Wavelengths, Footprints, Dreams, Space. Omit song to play next track.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"song": {"type": "string", "description": "track name, or omit for next"}},
+        },
+    },
+    {
+        "name": "zen_save",
+        "description": "Save the current artwork to a .mndla save file (BinaryFormatter). type: 'custom' (normal) or 'preset'.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "type": {"type": "string", "description": "custom (default) | preset"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "zen_load",
+        "description": "Load a .mndla save file by name (deserialize + call SaveAndLoadManager.Load). type: 'custom' | 'preset'.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "type": {"type": "string", "description": "custom (default) | preset"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "zen_upload",
+        "description": (
+            "Upload the saved design to Steam Workshop. Requires Steam connected, an existing save, "
+            "and a title. Real network side effect: publishes publicly. Optional description, then "
+            "takes a thumbnail screenshot and uploads. Returns the uploader's status text."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "description": {"type": "string"},
+            },
+            "required": ["title"],
+        },
+    },
 ]
 
 
@@ -318,6 +366,43 @@ def handle_call(name, arguments):
         comp = arguments.get("component")
         status, out = conn.call("clickui", path) if not comp else conn.call("clickui", path, comp)
         return {"content": [{"type": "text", "text": out}]}
+
+    if name == "zen_music":
+        song = arguments.get("song")
+        if song:
+            status, out = conn.call("call", "type:MusicManager", "PlaySpecificSong", song)
+        else:
+            status, out = conn.call("call", "type:MusicManager", "NextSong")
+        return {"content": [{"type": "text", "text": out}]}
+
+    if name == "zen_save":
+        name_ = arguments.get("name")
+        typ = arguments.get("type") or "custom"
+        status, out = conn.call("call", "type:SaveAndLoadManager", "Save", name_, typ)
+        return {"content": [{"type": "text", "text": out}]}
+
+    if name == "zen_load":
+        name_ = arguments.get("name")
+        typ = arguments.get("type") or "custom"
+        status, out = conn.call("loadsave", name_, typ)
+        return {"content": [{"type": "text", "text": out}]}
+
+    if name == "zen_upload":
+        title = arguments.get("title", "")
+        desc = arguments.get("description", "")
+        if not title:
+            return {"content": [{"type": "text", "text": "title required"}]}
+        st, out = conn.call("get", "type:Uploader", "designTitle")
+        tid = out.split("id=")[1].rstrip(")")
+        conn.call("set", f"obj:{tid}", "text", title)
+        if desc:
+            st, out = conn.call("get", "type:Uploader", "description")
+            did = out.split("id=")[1].rstrip(")")
+            conn.call("set", f"obj:{did}", "text", desc)
+        conn.call("call", "type:Uploader", "TakeScreenshot")
+        st, out = conn.call("call", "type:Uploader", "Upload")
+        st2, status_txt = conn.call("get", "type:Uploader", "statusText")
+        return {"content": [{"type": "text", "text": f"{out}\nstatus: {status_txt}"}]}
 
     return rpc_error(None, -32601, f"unknown tool {name}")
 

@@ -197,7 +197,7 @@ namespace ZenTrailsAgent
                 try { r = CommandRouter.Execute(job, this); }
                 catch (Exception e)
                 {
-                    r = Result.Bad("EXCEPTION " + e.GetType().Name + ": " + e.Message + "\n" + e.StackTrace);
+                    r = Result.Bad(CommandRouter.ExceptionText(e));
                 }
                 if (job.Cmd != "wait")
                 {
@@ -218,6 +218,16 @@ namespace ZenTrailsAgent
     {
         public static int FrameCount { get; set; }
 
+        public static string ExceptionText(Exception e)
+        {
+            var sb = new StringBuilder();
+            int depth = 0;
+            for (Exception x = e; x != null && depth < 8; x = x.InnerException, depth++)
+                sb.Append(x.GetType().Name).Append(": ").Append(x.Message).Append('\n');
+            if (e.StackTrace != null) sb.Append(e.StackTrace);
+            return sb.ToString();
+        }
+
         public static Result Execute(Job job, AgentPlugin plugin)
         {
             switch (job.Cmd)
@@ -231,6 +241,7 @@ namespace ZenTrailsAgent
                 case "set": return Set(job.Args);
                 case "call": return Call(job.Args);
                 case "coroutine": return Coroutine(job.Args);
+                case "loadsave": return LoadSave(job.Args);
                 case "shot": return Shot(job.Args);
                 case "mouse": return Mouse(job.Args);
                 case "key": return Key(job.Args);
@@ -644,6 +655,28 @@ namespace ZenTrailsAgent
             return Result.Good("call " + name + " -> " + Fmt(ret) + "  [not a coroutine]");
         }
 
+        static Result LoadSave(string[] args)
+        {
+            // loadsave <saveName> <type>   (type: "custom" | "preset")
+            if (args.Length < 2) return Result.Bad("usage: loadsave <saveName> <type>");
+            string saveName = args[0], type = args[1];
+            string path = Path.Combine(Application.persistentDataPath, "saves", saveName + ".mndla");
+            if (!File.Exists(path)) return Result.Bad("no save file: " + path);
+            try
+            {
+                var bf = new System.Runtime.Serialization.Formatters.Binary.BinaryFormatter();
+                object saveData;
+                using (var fs = File.OpenRead(path)) saveData = bf.Deserialize(fs);
+                object mgr = Resolve("type:SaveAndLoadManager");
+                if (mgr == null) return Result.Bad("SaveAndLoadManager not found");
+                var m = mgr.GetType().GetMethod("Load", BindingFlags.Public | BindingFlags.Instance);
+                if (m == null) return Result.Bad("Load method not found");
+                m.Invoke(mgr, new object[] { saveName, type, saveData });
+                return Result.Good("load started: " + saveName);
+            }
+            catch (Exception e) { return Result.Bad(ExceptionText(e)); }
+        }
+
         // ---------- capture / input ----------
 
         static Result Shot(string[] args)
@@ -841,7 +874,11 @@ namespace ZenTrailsAgent
             int n = args.Length > 0 ? int.Parse(args[0]) : 40;
             string p = Path.Combine(Paths.BepInExRootPath, "LogOutput.log");
             if (!File.Exists(p)) return Result.Bad("no log");
-            var lines = File.ReadAllLines(p);
+            string text;
+            using (var fs = new FileStream(p, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (var sr = new StreamReader(fs))
+                text = sr.ReadToEnd();
+            var lines = text.Split('\n');
             var tail = lines.Skip(Math.Max(0, lines.Length - n));
             return Result.Good(string.Join("\n", tail.ToArray()));
         }
