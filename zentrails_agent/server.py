@@ -75,6 +75,48 @@ conn = Conn()
 
 # ---- tool registry ----
 
+def get_agent_guide(topic: str = "all") -> str:
+    """Retrieve the AI Creator Guide & Sacred Geometry Handbook (AGENTS.md)."""
+    pkg_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(pkg_dir, "AGENTS.md"),
+        os.path.join(os.path.dirname(pkg_dir), "AGENTS.md"),
+    ]
+    guide_text = ""
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    guide_text = f.read()
+                break
+            except Exception:
+                pass
+    if not guide_text:
+        return "Zen Trails AI Creator Guide (AGENTS.md) could not be loaded."
+
+    if not topic or topic == "all":
+        return guide_text
+
+    lines = guide_text.splitlines()
+    selected_lines = []
+    in_section = False
+    topic_kw = {
+        "kinematics": ["核心机制", "神圣几何", "摆线", "Kinematics", "公式"],
+        "palettes": ["色彩体系", "Sacred Palettes", "色彩", "颜色"],
+        "workflow": ["创作标准流程", "避坑守则", "Standard Workflow", "Rules"],
+    }.get(topic.lower(), [])
+
+    for line in lines:
+        if line.startswith("## "):
+            in_section = any(kw in line for kw in topic_kw)
+        if in_section:
+            selected_lines.append(line)
+
+    if selected_lines:
+        return "\n".join(selected_lines).strip()
+    return guide_text
+
+
 NAMED_COLORS = {
     "gold": "1.00,0.85,0.28,1",
     "cyan": "0.20,0.92,1.00,1",
@@ -287,7 +329,8 @@ TOOLS = [
         "description": (
             "High-level tool to create a new moving pendulum segment with light trails. "
             "Handles ID generation, parameter formatting, and hides physical arm meshes automatically. "
-            "Set parent_id to chain segments into harmonic epicycles (rosettes, stars, mandalas)."
+            "Set parent_id to chain segments into harmonic epicycles (rosettes, stars, mandalas). "
+            "Tip: Call 'zen_guide' to inspect sacred geometry kinematics formulas and color palettes."
         ),
         "inputSchema": {
             "type": "object",
@@ -357,6 +400,24 @@ TOOLS = [
         "name": "zen_list_segments",
         "description": "List all active segments in the current artwork with their IDs, parent links, lengths, speeds, and colors.",
         "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "zen_guide",
+        "description": (
+            "Get the Zen Trails AI Creator Guide & Sacred Geometry Handbook (AGENTS.md). "
+            "Contains multi-pendulum kinematics formulas (Flower of Life 1:-2, Astroid 1:-3, Hexagram 1:-5, Solar Corona 1:-23, Satellites), "
+            "color palettes, and workflow best practices. Recommended to call before generating art."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "topic": {
+                    "type": "string",
+                    "description": "Optional section to retrieve: 'all' (default), 'kinematics', 'palettes', 'workflow'.",
+                    "enum": ["all", "kinematics", "palettes", "workflow"],
+                }
+            },
+        },
     },
 ]
 
@@ -645,6 +706,11 @@ def handle_call(name, arguments):
             lines.append(f"  - ID={sid_.split('=')[1].strip()} Parent={pid_.split('=')[1].strip()} Length={len_.split('=')[1].strip()} Speed={spd_.split('=')[1].strip()} Angle={ang_.split('=')[1].strip()} Trail={tr_.split('=')[1].strip()} Color={col_.split('=')[1].strip()}")
         return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
+    if name == "zen_guide":
+        topic = arguments.get("topic", "all")
+        guide = get_agent_guide(topic)
+        return {"content": [{"type": "text", "text": guide}]}
+
     return rpc_error(None, -32601, f"unknown tool {name}")
 
 
@@ -664,7 +730,10 @@ def main():
         if method == "initialize":
             resp = rpc_result(_id, {
                 "protocolVersion": "2024-11-05",
-                "capabilities": {"tools": {}},
+                "capabilities": {
+                    "tools": {},
+                    "resources": {},
+                },
                 "serverInfo": {"name": "zen-trails", "version": "1.0.0"},
             })
             sys.stdout.write(json.dumps(resp) + "\n")
@@ -673,6 +742,35 @@ def main():
             pass  # notification, no response
         elif method == "tools/list":
             resp = rpc_result(_id, {"tools": TOOLS})
+            sys.stdout.write(json.dumps(resp) + "\n")
+            sys.stdout.flush()
+        elif method == "resources/list":
+            resp = rpc_result(_id, {
+                "resources": [
+                    {
+                        "uri": "zentrails://guide",
+                        "name": "Zen Trails AI Creator Guide (AGENTS.md)",
+                        "description": "Kinematics formulas, sacred geometry ratios, workflows and best practices for creating light trail art in Zen Trails.",
+                        "mimeType": "text/markdown",
+                    }
+                ]
+            })
+            sys.stdout.write(json.dumps(resp) + "\n")
+            sys.stdout.flush()
+        elif method == "resources/read":
+            uri = params.get("uri")
+            if uri in ("zentrails://guide", "zentrails://agents.md"):
+                resp = rpc_result(_id, {
+                    "contents": [
+                        {
+                            "uri": uri,
+                            "mimeType": "text/markdown",
+                            "text": get_agent_guide("all"),
+                        }
+                    ]
+                })
+            else:
+                resp = rpc_error(_id, -32602, f"Resource not found: {uri}")
             sys.stdout.write(json.dumps(resp) + "\n")
             sys.stdout.flush()
         elif method == "tools/call":

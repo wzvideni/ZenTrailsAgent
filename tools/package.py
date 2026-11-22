@@ -43,6 +43,7 @@ MCP_FILES = [
     "zentrails_agent",
     "client.py",
     "mcp_server.py",
+    "AGENTS.md",
 ]
 
 # 打包时给 mcp/ 生成的精简 pyproject（去掉 readme 引用，因为 mcp/ 目录内不放长 README）
@@ -142,8 +143,14 @@ def stage_mcp(stage, version):
     # 用精简 pyproject 覆盖（版本号动态写入，去掉 readme 引用）
     with open(_os.path.join(mdir, "pyproject.toml"), "w", encoding="utf-8") as f:
         f.write(MCP_PYPROJECT.format(version=version))
-    for name in ("zentrails_agent", "client.py", "mcp_server.py"):
-        copy_tree(_os.path.join(paths.ROOT, name), _os.path.join(mdir, name))
+    for name in ("zentrails_agent", "client.py", "mcp_server.py", "AGENTS.md"):
+        src = _os.path.join(paths.ROOT, name)
+        if _os.path.exists(src):
+            copy_tree(src, _os.path.join(mdir, name))
+    # 确保 zentrails_agent 包内也包含一份 AGENTS.md（供 pip/uv 运行时加载）
+    pkg_agents = _os.path.join(mdir, "zentrails_agent", "AGENTS.md")
+    if not _os.path.exists(pkg_agents):
+        shutil.copy2(_os.path.join(paths.ROOT, "AGENTS.md"), pkg_agents)
     # 剔除 __pycache__，避免把本机字节码打进发布包
     for dirpath, dirnames, _ in _os.walk(mdir):
         if "__pycache__" in dirnames:

@@ -80,3 +80,6 @@ show("zen_list_segments", {})
 show("zen_play", {})
 time.sleep(1)
 show("zen_pause", {})
+
+print("\n=== 13. AI Creator Guide Tool Test ===")
+show("zen_guide", {"topic": "kinematics"})

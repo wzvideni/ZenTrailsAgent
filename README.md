@@ -18,7 +18,7 @@ mcp_server.py  ──(line protocol / TCP 127.0.0.1:5123)──▶  ZenTrailsAge
 ```
 
 - **游戏内插件**：`ZenTrailsAgent.dll` 注入到游戏进程，监听 `127.0.0.1:5123`，把每个命令放到 Unity 主线程 `Update()` 里执行，安全地反射调用游戏方法。
-- **MCP server**：`zentrails_agent/server.py`（纯标准库 + Pillow），把桥协议封装成 15 个 MCP 工具。
+- **MCP server**：`zentrails_agent/server.py`（纯标准库 + Pillow），提供 24 个标准 MCP 工具与原生 Resource。
 - **客户端**：任何支持 MCP stdio 的客户端都能接入（Claude Desktop、Cursor、Cline、DSH 等）。
 
 ## 目录结构
@@ -210,16 +210,17 @@ dist/ZenTrails-Agent-v0.2.0.zip
 
 > 关于 `npx`：这是 Node 的等价物。本项目的 MCP server 是 Python 实现，用 `uvx` 是最自然的对应方式；若需要 `npx` 形式，需另写一个 Node 版 server（桥接协议不变，仅 client/server 换成 JS），目前未提供。
 
-重启客户端后，工具列表会出现 `zentrails` 系列（包含 8 个高阶创作工具、5 个系统与工坊工具、10 个底层反射工具，共 23 个）。`mcp_server.py` 是懒连接：游戏没开时它不会崩，只是调用返回 `[ERR] bridge error`。
+重启客户端后，工具列表会出现 `zentrails` 系列（包含 9 个高阶创作工具、5 个系统与工坊工具、10 个底层反射工具，共 24 个）。`mcp_server.py` 是懒连接：游戏没开时它不会崩，只是调用返回 `[ERR] bridge error`。
 
-> 💡 **AI 创作必读**：关于物理多连杆逆旋摆线生成公式（生命之花、多芒星、日轮耀斑）及创作最佳实践，详见专为 Agent 编写的 **[AGENTS.md](file:///C:/Programming/PyCharm/ZenTrailsAgent/AGENTS.md)**。
+> 💡 **AI 创作必读**：关于物理多连杆逆旋摆线生成公式（生命之花、多芒星、日轮耀斑）及创作最佳实践，已原生内置为 `zen_guide` 工具与 MCP 资源 `zentrails://guide`，详见专为 Agent 编写的 **[AGENTS.md](file:///C:/Programming/PyCharm/ZenTrailsAgent/AGENTS.md)**。
 
-## MCP 工具列表 (共 23 个)
+## MCP 工具列表 (共 24 个)
 
 ### 1. 高阶领域创作工具（AI 创作核心）
 
 | 工具 | 说明 |
 |------|------|
+| `zen_guide` | **创作手册**：获取多连杆逆旋摆线速比公式、生命之花、星芒几何规律与神圣色彩体系（可过滤 `kinematics`/`palettes`/`workflow`） |
 | `zen_create_segment` | **高阶创建连杆**：自动补齐 16 个引擎参数、管理 ID、支持 `parent_id` 级联，自动隐藏机械网格并防原生崩溃 |
 | `zen_clear` | **一键清空画布**：安全重置场景，清除所有活跃线段并复位 ID 计数器 |
 | `zen_play` | **启动模拟**：确保解除暂停，运行物理模拟以绘制璀璨流光轨迹 |
