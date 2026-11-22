@@ -34,7 +34,7 @@ $refs = @(
     "$managed\UnityEngine.UI.dll",
     'System.dll',
     'System.Core.dll'
-) | ForEach-Object { "/r:`"$_`"" }
+) | ForEach-Object { "/r:$_" }
 
 & $csc /nologo /target:library /platform:x64 /optimize+ /out:$outDll @refs $src
 if ($LASTEXITCODE -ne 0) { throw "编译失败 (exit $LASTEXITCODE)" }
@@ -43,12 +43,13 @@ Write-Host "编译成功: $outDll" -ForegroundColor Green
 
 if ($Deploy) {
     $plugins = Join-Path $game 'BepInEx\plugins'
+    # 覆盖 DLL 前必须停游戏（文件被进程锁定）
+    Get-Process 'Zen Trails' -ErrorAction SilentlyContinue | Stop-Process -Force
+    Start-Sleep -Seconds 1
     Copy-Item $outDll $plugins -Force
     Write-Host "已部署到: $plugins" -ForegroundColor Green
 
     if ($Restart) {
-        Get-Process 'Zen Trails' -ErrorAction SilentlyContinue | Stop-Process -Force
-        Start-Sleep -Seconds 1
         Start-Process -FilePath (Join-Path $game 'Zen Trails.exe') -WorkingDirectory $game
         Write-Host "游戏已重启" -ForegroundColor Green
     }

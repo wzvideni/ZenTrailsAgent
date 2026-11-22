@@ -7,7 +7,10 @@ MCP-capable AI agent (including DSH) drive the game with no mouse/keyboard.
 
 Protocol: newline-delimited JSON-RPC 2.0 over stdio.
 """
+import base64
+import io
 import json
+import os
 import sys
 import time
 import threading
@@ -80,10 +83,17 @@ TOOLS = [
     },
     {
         "name": "zen_screenshot",
-        "description": "Capture the game screen to a PNG in <game>/shots/ and return the absolute path.",
+        "description": (
+            "Capture the game screen to a PNG in <game>/shots/ and return the absolute path. "
+            "Set return_image=true to also return the image inline (base64, scaled to max 1280px wide) "
+            "so a vision-capable model can see it directly."
+        ),
         "inputSchema": {
             "type": "object",
-            "properties": {"name": {"type": "string", "description": "file name (no .png)"}},
+            "properties": {
+                "name": {"type": "string", "description": "file name (no .png)"},
+                "return_image": {"type": "boolean", "description": "inline the image as base64 content"},
+            },
         },
     },
     {
@@ -104,6 +114,23 @@ TOOLS = [
         },
     },
     {
+        "name": "zen_types",
+        "description": "List game types (from loaded non-System assemblies), optionally filtered by a name substring.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"filter": {"type": "string", "description": "substring match (empty = all)"}},
+        },
+    },
+    {
+        "name": "zen_describe",
+        "description": "Reflect a type: base class, fields, properties, methods, enum values.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"type": {"type": "string"}},
+            "required": ["type"],
+        },
+    },
+    {
         "name": "zen_get",
         "description": "Read fields/properties of a resolved object (dot-separated member path).",
         "inputSchema": {
@@ -116,8 +143,27 @@ TOOLS = [
         },
     },
     {
+        "name": "zen_set",
+        "description": (
+            "Write a field/property of a resolved object. Value is converted by the member's declared type "
+            "(e.g. '1.5' for float, 'true' for bool, '1,0.5,0,1' for Color/Vector)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "selector": {"type": "string"},
+                "member": {"type": "string", "description": "member name or dot path (leaf is written)"},
+                "value": {"type": "string"},
+            },
+            "required": ["selector", "member", "value"],
+        },
+    },
+    {
         "name": "zen_call",
-        "description": "Invoke a method on a resolved object. Values converted by param type (null for ref types).",
+        "description": (
+            "Invoke a method on a resolved object. Values converted by param type (null for ref types). "
+            "For methods returning IEnumerator (coroutines), use zen_coroutine instead so it actually runs."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -129,12 +175,19 @@ TOOLS = [
         },
     },
     {
-        "name": "zen_describe",
-        "description": "Reflect a type: base class, fields, properties, methods, enum values.",
+        "name": "zen_coroutine",
+        "description": (
+            "Invoke a coroutine method (returns IEnumerator) on a MonoBehaviour and start it via StartCoroutine, "
+            "so the game's own frame loop runs it."
+        ),
         "inputSchema": {
             "type": "object",
-            "properties": {"type": {"type": "string"}},
-            "required": ["type"],
+            "properties": {
+                "selector": {"type": "string"},
+                "method": {"type": "string"},
+                "args": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["selector", "method"],
         },
     },
     {
@@ -152,6 +205,26 @@ TOOLS = [
 ]
 
 
+def _inline_image(path, max_width=1280):
+    """Read a screenshot and return an MCP image content block (JPEG, scaled)."""
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    if not os.path.isfile(path):
+        return None
+    try:
+        im = Image.open(path).convert("RGB")
+        if im.width > max_width:
+            h = max(1, int(im.height * max_width / im.width))
+            im = im.resize((max_width, h))
+        buf = io.BytesIO()
+        im.save(buf, format="JPEG", quality=82)
+        return {"type": "image", "data": base64.b64encode(buf.getvalue()).decode("ascii"), "mimeType": "image/jpeg"}
+    except Exception:
+        return None
+
+
 def handle_call(name, arguments):
     arguments = arguments or {}
     if name == "zen_cmd":
@@ -164,8 +237,24 @@ def handle_call(name, arguments):
 
     if name == "zen_screenshot":
         n = arguments.get("name") or ("shot_" + str(int(time.time())))
+        if n.lower().endswith(".png"):
+            n = n[:-4]
         status, out = conn.call("shot", n)
-        return {"content": [{"type": "text", "text": out if status == "OK" else f"[{status}] {out}"}]}
+        if status != "OK":
+            return {"content": [{"type": "text", "text": f"[{status}] {out}"}]}
+        path = out.strip()
+        # ScreenCapture writes at end of frame; poll until the file exists
+        for _ in range(50):
+            st, info = conn.call("bytes", path)
+            if st == "OK" and "size=" in info and info.split("size=")[1].split()[0] != "0":
+                break
+            time.sleep(0.1)
+        content = [{"type": "text", "text": path}]
+        if arguments.get("return_image"):
+            img = _inline_image(path)
+            if img is not None:
+                content.insert(0, img)
+        return {"content": content}
 
     if name == "zen_scene":
         depth = arguments.get("depth") or 2
@@ -176,10 +265,23 @@ def handle_call(name, arguments):
         status, out = conn.call("find", arguments.get("type", ""))
         return {"content": [{"type": "text", "text": out}]}
 
+    if name == "zen_types":
+        status, out = conn.call("types", arguments.get("filter", ""))
+        return {"content": [{"type": "text", "text": out}]}
+
     if name == "zen_get":
         sel = arguments.get("selector")
         mem = arguments.get("members")
         status, out = conn.call("get", sel) if not mem else conn.call("get", sel, mem)
+        return {"content": [{"type": "text", "text": out}]}
+
+    if name == "zen_set":
+        sel = arguments.get("selector")
+        member = arguments.get("member")
+        value = arguments.get("value")
+        if not member or value is None:
+            return {"content": [{"type": "text", "text": "selector, member and value are required"}]}
+        status, out = conn.call("set", sel, member, value)
         return {"content": [{"type": "text", "text": out}]}
 
     if name == "zen_call":
@@ -187,6 +289,13 @@ def handle_call(name, arguments):
         method = arguments.get("method")
         args = arguments.get("args") or []
         status, out = conn.call("call", sel, method, *args)
+        return {"content": [{"type": "text", "text": out}]}
+
+    if name == "zen_coroutine":
+        sel = arguments.get("selector")
+        method = arguments.get("method")
+        args = arguments.get("args") or []
+        status, out = conn.call("coroutine", sel, method, *args)
         return {"content": [{"type": "text", "text": out}]}
 
     if name == "zen_describe":

@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Zen Trails AI 控制：BepInEx 进程内注入 + MCP 工具，让 AI Agent 驱动游戏"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "pillow>=10.0",          # 截图缩放，供 vision 模型内联读取
+]
 
 [dependency-groups]
 # 资源逆向（反射/IL 反编译）时按需安装，uv sync 默认会装 dev 组

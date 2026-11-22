@@ -26,23 +26,28 @@ mcp_server.py  ──(line protocol / TCP 127.0.0.1:5123)──▶  ZenTrailsAge
 | 文件 | 作用 |
 |------|------|
 | `src/AgentBridge.cs` | BepInEx 插件源码（C# 5，Framework csc 编译） |
-| `ZenTrailsAgent.dll` | 编译产物，已部署到游戏 `BepInEx\plugins\` |
+| `dist/ZenTrailsAgent.dll` | 编译产物（`tools/build_plugin.ps1` 生成，已部署到游戏） |
 | `client.py` | 桥接客户端（Python，stdio 之外也可直接用） |
-| `mcp_server.py` | MCP server（stdio / JSON-RPC 2.0） |
+| `mcp_server.py` | MCP server（stdio / JSON-RPC 2.0，11 个工具） |
+| `tools/build_plugin.ps1` | 编译 + 部署 + 重启游戏 |
+| `tools/test_tools.py` / `tools/test_clickui.py` | MCP 工具端到端测试 |
 | `demo_draw.py` / `demo_mandala.py` | 演示脚本 |
-| `Dump.exe` / `DumpIL.exe` | 静态反射/IL 反编译工具（Cecil） |
+| `tools/Dump.cs` / `tools/DumpIL.cs` | 反射/IL 反编译工具源码（Cecil） |
 
 ## MCP 工具
 
 | 工具 | 说明 |
 |------|------|
-| `zen_cmd` | 通用桥命令（ping/types/describe/scene/find/get/set/call/shot/mouse/drag/clickui/focus/log） |
-| `zen_screenshot` | 截图到 `<游戏目录>\shots\*.png`，返回绝对路径 |
+| `zen_cmd` | 通用桥命令（ping/types/describe/scene/find/get/set/call/coroutine/shot/mouse/drag/clickui/focus/log） |
+| `zen_screenshot` | 截图到 `<游戏目录>\shots\*.png`；`return_image=true` 时内联返回缩放后的 JPEG（供 vision 模型直接看） |
 | `zen_scene` | 转储场景层级 |
 | `zen_find` | 按类型列出活动实例（带 instance ID 和路径） |
-| `zen_get` | 读字段/属性（点路径） |
-| `zen_call` | 调用方法（按参数类型转换） |
+| `zen_types` | 枚举游戏类型（可过滤子串） |
 | `zen_describe` | 反射类型（字段/属性/方法/枚举） |
+| `zen_get` | 读字段/属性（点路径，静态/实例均可） |
+| `zen_set` | 写字段/属性（按声明类型转换，静态/实例均可） |
+| `zen_call` | 调用普通方法（按参数类型转换） |
+| `zen_coroutine` | 调用协程方法（`IEnumerator`），经 `StartCoroutine` 真正执行 |
 | `zen_clickui` | 进程内点击 UI Button（窗口失焦也能点） |
 
 ## 关键结论 / 陷阱
@@ -53,8 +58,8 @@ mcp_server.py  ──(line protocol / TCP 127.0.0.1:5123)──▶  ZenTrailsAge
    （后者优先找静态单例字段 `instance/Instance/I/_instance/singleton/...`，否则取第一个活动实例）。
 3. **合成鼠标事件（SendInput/mouse_event）Unity 不接收**：实测 OS 级点击无效；
    但「进程内点击 UI 按钮」和「直接调用游戏方法」都可靠。
-4. **异步方法**（返回 `IEnumerator` 的协程）不能用 `call` 直接等结果，但很多
-   启动入口是普通 `static void`（如 `GameManager.BeginMainGame`），可直接调用。
+4. **协程方法**（返回 `IEnumerator`）要用 `zen_coroutine` 才会真正执行；
+   普通 `static void` 入口（如 `GameManager.BeginMainGame`）用 `zen_call` 即可。
 
 ## 实测操作序列（成功）
 

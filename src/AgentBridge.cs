@@ -230,6 +230,7 @@ namespace ZenTrailsAgent
                 case "get": return Get(job.Args);
                 case "set": return Set(job.Args);
                 case "call": return Call(job.Args);
+                case "coroutine": return Coroutine(job.Args);
                 case "shot": return Shot(job.Args);
                 case "mouse": return Mouse(job.Args);
                 case "key": return Key(job.Args);
@@ -586,6 +587,39 @@ namespace ZenTrailsAgent
             for (int i = 0; i < ps.Length; i++) conv[i] = ConvertArg(raw[i], ps[i].ParameterType);
             var ret = best.Invoke(best.IsStatic ? null : obj, conv);
             return Result.Good("call " + name + " -> " + Fmt(ret));
+        }
+
+        static Result Coroutine(string[] args)
+        {
+            if (args.Length < 2) return Result.Bad("usage: coroutine <selector> <method> [args...]");
+            object obj = Resolve(args[0]);
+            if (obj == null) return Result.Bad("object not resolved: " + args[0]);
+            var t = obj.GetType();
+            string name = args[1];
+            string[] raw = args.Skip(2).ToArray();
+            MethodInfo best = null;
+            for (Type cur = t; cur != null && best == null; cur = cur.BaseType)
+            {
+                foreach (var m in cur.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
+                {
+                    if (m.Name != name) continue;
+                    if (m.GetParameters().Length != raw.Length) continue;
+                    best = m; break;
+                }
+            }
+            if (best == null) return Result.Bad("method not found: " + name + "/" + raw.Length + " on " + t.Name);
+            var ps = best.GetParameters();
+            var conv = new object[ps.Length];
+            for (int i = 0; i < ps.Length; i++) conv[i] = ConvertArg(raw[i], ps[i].ParameterType);
+            var ret = best.Invoke(best.IsStatic ? null : obj, conv);
+            if (ret is IEnumerator)
+            {
+                var mb = obj as MonoBehaviour;
+                if (mb == null) return Result.Bad("method returns IEnumerator but object is not a MonoBehaviour (got " + t.Name + ")");
+                mb.StartCoroutine((IEnumerator)ret);
+                return Result.Good("coroutine started " + name);
+            }
+            return Result.Good("call " + name + " -> " + Fmt(ret) + "  [not a coroutine]");
         }
 
         // ---------- capture / input ----------
