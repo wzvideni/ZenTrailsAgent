@@ -396,23 +396,48 @@ def handle_call(name, arguments):
         if not title:
             return {"content": [{"type": "text", "text": "title required"}]}
 
-        # 确保画面处于运行并绘出流光轨迹的状态：
+        # 1. 确保画面处于运行并绘出流光轨迹的状态：
         # 游戏中的 TrailRenderer 只在运转时产生轨迹。若处于刚加载的静态编辑态（sequencing=false），
         # 画面上没有任何流光，必须先启动运转让轨迹画满，并用 TogglePause 定格，才能截取到真实绚烂的画面。
         st_seq, out_seq = conn.call("get", "type:ClickAndDrag", "sequencing")
         if "False" in out_seq:
             conn.call("set", "type:ClickAndDrag", "paused", "false")
             conn.call("call", "type:ClickAndDrag", "StartOrStop")
-            # 运转绘制周期（约 18-20 秒闭合），若只是简单图案至少需 12 秒
             time.sleep(18.0)
             conn.call("call", "type:ClickAndDrag", "TogglePause")
             time.sleep(0.8)
 
-        # 先打开 Uploader 面板，建立正确的 OpenWithCurtain 状态（open=true）。
-        # 否则直接调 TakeScreenshot 会在截图协程结束时把面板 localScale 硬设为 1
-        # 却不置 open=true，导致上传成功后 if(open){Close()} 关闭逻辑失效，
-        # 留下一个无法关闭的全屏黑框（游戏自身 bug）。
+        # 2. 核心机制：在打开 Uploader 面板之前，先截取主相机的纯净视口（此时无任何弹窗和 Curtain 遮罩）。
+        user_home = os.path.expanduser("~")
+        uploader_dir = os.path.join(user_home, "AppData", "LocalLow", "Universe Juice", "Zen Trails", "uploader")
+        recent_path = os.path.join(uploader_dir, "most_recent", "ZenTrails_MostRecentScreenshot.png")
+        preview_path = os.path.join(uploader_dir, "preview_image", "PreviewImage.jpg")
+
+        # 临时隐去 Canvas UI 确保没有按钮遮挡
+        conn.call("set", "path:/Canvas", "enabled", "false")
+        time.sleep(0.3)
+        conn.call("shot", "upload_pure_preview")
+        conn.call("set", "path:/Canvas", "enabled", "true")
+        time.sleep(0.3)
+
+        # 将截取到的纯净全景同步写入游戏的 most_recent 与 preview_image 缓存
+        try:
+            from PIL import Image
+            shots_dir = r"C:\Program Files (x86)\Steam\steamapps\common\Zen Trails\shots"
+            shot_file = os.path.join(shots_dir, "upload_pure_preview.png")
+            if os.path.isfile(shot_file):
+                im = Image.open(shot_file).convert("RGB")
+                os.makedirs(os.path.dirname(recent_path), exist_ok=True)
+                os.makedirs(os.path.dirname(preview_path), exist_ok=True)
+                im.save(recent_path, "PNG")
+                im.save(preview_path, "JPEG", quality=88)
+        except Exception:
+            pass
+
+        # 3. 打开 Uploader 面板建立正确的 OpenWithCurtain 状态（open=true）
         conn.call("call", "type:Uploader", "Open")
+        time.sleep(0.5)
+
         st, out = conn.call("get", "type:Uploader", "designTitle")
         tid = out.split("id=")[1].split(")")[0]
         conn.call("set", f"obj:{tid}", "text", title)
@@ -421,15 +446,11 @@ def handle_call(name, arguments):
             did = out.split("id=")[1].split(")")[0]
             conn.call("set", f"obj:{did}", "text", desc)
 
-        # 核心修复：游戏 Uploader 的 ieTakeScreenshot 协程在截屏时忘记隐藏 Curtain 幕布，
-        # 导致截取出来的缩略图被全屏灰框 Curtain 彻底遮挡。
-        # 必须在截屏前将 Curtain scale 设为 0，主相机才能拍到真正的流光画面！
-        conn.call("set", "type:Uploader", "sOpener.curtain.localScale", "0,0,0")
-        conn.call("call", "type:Uploader", "TakeScreenshot")
-        # ieTakeScreenshot 包含 WaitForEndOfFrame + WaitForSeconds(1.0f) 延迟，
-        # 必须等待至少 2 秒以确保 PreviewImage.jpg 完成编码写入，否则会上传空预览图。
-        time.sleep(2.0)
-        conn.call("set", "type:Uploader", "sOpener.curtain.localScale", "1,1,1")
+        # 让 Uploader 载入刚才准备好的纯净全景缩略图
+        conn.call("call", "type:Uploader", "SetThumbnailAsMostRecentScreenshot")
+        time.sleep(0.5)
+
+        # 4. 提交上传
         st, out = conn.call("call", "type:Uploader", "Upload")
         st2, status_obj = conn.call("get", "type:Uploader", "statusText")
         status_txt = status_obj
