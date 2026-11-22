@@ -17,6 +17,17 @@ import threading
 from client import Bridge
 
 
+# DSH (and MCP in general) speaks UTF-8 over stdio. On Windows the default stdio
+# encoding is the ANSI codepage (GBK), which would mangle non-ASCII args/results.
+if hasattr(sys.stdin, "reconfigure"):
+    try:
+        sys.stdin.reconfigure(encoding="utf-8")
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+
 # ---- thin JSON-RPC helpers ----
 
 def rpc_result(_id, result):
