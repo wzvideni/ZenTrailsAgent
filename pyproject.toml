@@ -1,0 +1,15 @@
+[project]
+name = "zen-trails-agent"
+version = "0.1.0"
+description = "Zen Trails AI 控制：BepInEx 进程内注入 + MCP 工具，让 AI Agent 驱动游戏"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[dependency-groups]
+# 资源逆向（反射/IL 反编译）时按需安装，uv sync 默认会装 dev 组
+dev = []
+
+[tool.uv]
+# 纯脚本仓库，不需要把自身打包成 wheel
+package = false

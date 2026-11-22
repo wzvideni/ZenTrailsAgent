@@ -1,0 +1,22 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# 构建产物（可重新编译）
+dist/
+*.dll
+*.exe
+
+# 逆向工具的运行时依赖（从游戏目录拷贝，可随时重新拷贝）
+tools/lib/
+
+# 逆向中间产物与截图（体积大，可重新生成）
+dumps/
+shots/
+
+# IDE
+.idea/
+
+# 备份
+*.bak
