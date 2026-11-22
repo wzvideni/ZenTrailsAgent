@@ -407,36 +407,10 @@ def handle_call(name, arguments):
             conn.call("call", "type:ClickAndDrag", "TogglePause")
             time.sleep(0.8)
 
-        # 2. 核心机制：在打开 Uploader 面板之前，先截取主相机的纯净视口（此时无任何弹窗和 Curtain 遮罩）。
-        user_home = os.path.expanduser("~")
-        uploader_dir = os.path.join(user_home, "AppData", "LocalLow", "Universe Juice", "Zen Trails", "uploader")
-        recent_path = os.path.join(uploader_dir, "most_recent", "ZenTrails_MostRecentScreenshot.png")
-        preview_path = os.path.join(uploader_dir, "preview_image", "PreviewImage.jpg")
-
-        # 临时隐去 Canvas UI 确保没有按钮遮挡
-        conn.call("set", "path:/Canvas", "enabled", "false")
-        time.sleep(0.3)
-        conn.call("shot", "upload_pure_preview")
-        conn.call("set", "path:/Canvas", "enabled", "true")
-        time.sleep(0.3)
-
-        # 将截取到的纯净全景同步写入游戏的 most_recent 与 preview_image 缓存
-        try:
-            from PIL import Image
-            shots_dir = r"C:\Program Files (x86)\Steam\steamapps\common\Zen Trails\shots"
-            shot_file = os.path.join(shots_dir, "upload_pure_preview.png")
-            if os.path.isfile(shot_file):
-                im = Image.open(shot_file).convert("RGB")
-                os.makedirs(os.path.dirname(recent_path), exist_ok=True)
-                os.makedirs(os.path.dirname(preview_path), exist_ok=True)
-                im.save(recent_path, "PNG")
-                im.save(preview_path, "JPEG", quality=88)
-        except Exception:
-            pass
-
-        # 3. 打开 Uploader 面板建立正确的 OpenWithCurtain 状态（open=true）
+        # 2. 打开 Uploader 面板并等待其展开动效彻底就绪
+        # OpenWithCurtain.Open() 包含展开动画，等待 1.8 秒以确保面板完全撑开、Curtain 幕布完全收起。
         conn.call("call", "type:Uploader", "Open")
-        time.sleep(0.5)
+        time.sleep(1.8)
 
         st, out = conn.call("get", "type:Uploader", "designTitle")
         tid = out.split("id=")[1].split(")")[0]
@@ -446,9 +420,13 @@ def handle_call(name, arguments):
             did = out.split("id=")[1].split(")")[0]
             conn.call("set", f"obj:{did}", "text", desc)
 
-        # 让 Uploader 载入刚才准备好的纯净全景缩略图
-        conn.call("call", "type:Uploader", "SetThumbnailAsMostRecentScreenshot")
-        time.sleep(0.5)
+        # 3. 核心机制：触发上传面板上的官方「截图」按钮
+        # 游戏原生 Uploader.ieTakeScreenshot 协程在面板完全展开后调用，
+        # 会精确自动隐藏右上角导航栏（sNavPanel.gameObject.SetActive(false)）、自身弹窗及所有设置面板，
+        # 截取纯净无任何多余 UI 按钮的游戏主视口，并自动编码为 PreviewImage.jpg 供上传。
+        conn.call("clickui", "Canvas/Uploader/AddScreenshotButton/Button")
+        # 等待截图协程完成（包含 WaitForEndOfFrame + 1.0s WaitForSeconds 编码写盘）
+        time.sleep(2.5)
 
         # 4. 提交上传
         st, out = conn.call("call", "type:Uploader", "Upload")
