@@ -1,6 +1,6 @@
 [project]
 name = "zen-trails-agent"
-version = "0.1.7"
+dynamic = ["version"]
 description = "Zen Trails AI 控制：BepInEx 进程内注入 + MCP 工具，让 AI Agent 驱动游戏"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -21,3 +21,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["zentrails_agent"]
+
+[tool.hatch.version]
+path = "zentrails_agent/__init__.py"
