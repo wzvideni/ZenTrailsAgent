@@ -66,7 +66,11 @@ class Conn:
                         self._b = None
                         time.sleep(0.5)
                     else:
-                        return "ERR", f"bridge error: {type(e).__name__}: {e}"
+                        hint = ""
+                        err_str = str(e)
+                        if "ConnectionRefusedError" in err_str or "10061" in err_str:
+                            hint = " [HINT: Zen Trails is not running or bridge is unreachable on 127.0.0.1:5123. Call 'zen_launch' to automatically start the game via Steam.]"
+                        return "ERR", f"bridge error: {type(e).__name__}: {e}{hint}"
             return "ERR", "unreachable"
 
 
@@ -134,6 +138,219 @@ NAMED_COLORS = {
 _next_segment_id = 1000
 
 
+def find_and_launch_game(timeout: float = 30.0, auto_enter: bool = True):
+    """Detect and launch Zen Trails via Steam protocol (steam://run/1418570) or library search, then wait for TCP handshake."""
+    # 1. First, check if already alive and answering
+    try:
+        b = conn.bridge()
+        st, out = b.cmd("ping")
+        if st == "OK":
+            if auto_enter:
+                b.cmd("call", "type:GameManager", "BeginMainGame")
+            return True, f"Zen Trails is already running and connected ({out.strip()})."
+    except Exception:
+        pass
+
+    # 2. Try launching via Steam protocol (Method A: path-agnostic)
+    launched = False
+    launch_method = ""
+    try:
+        os.startfile("steam://run/1418570")
+        launched = True
+        launch_method = "Steam URL protocol (steam://run/1418570)"
+    except Exception:
+        pass
+
+    # 3. Fallback: Parse Steam's libraryfolders.vdf to find executable across drives
+    if not launched:
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as key:
+                steam_path = winreg.QueryValueEx(key, "SteamPath")[0]
+            vdf_path = os.path.join(steam_path, "steamapps", "libraryfolders.vdf")
+            if os.path.exists(vdf_path):
+                import re
+                import subprocess
+                with open(vdf_path, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+                lib_blocks = re.findall(r'"path"\s+"([^"]+)".*?"apps"\s*\{([^}]+)\}', content, re.DOTALL)
+                for lib_path, apps_block in lib_blocks:
+                    lib_clean = lib_path.replace("\\\\", "\\")
+                    if '"1418570"' in apps_block:
+                        candidate = os.path.join(lib_clean, "steamapps", "common", "Zen Trails", "Zen Trails.exe")
+                        if os.path.exists(candidate):
+                            subprocess.Popen([candidate])
+                            launched = True
+                            launch_method = f"Direct executable ({candidate})"
+                            break
+        except Exception:
+            pass
+
+    # 4. Handshake loop: poll 127.0.0.1:5123 until ready or timeout
+    start_time = time.time()
+    last_err = ""
+    while time.time() - start_time < timeout:
+        time.sleep(0.5)
+        try:
+            conn._b = None
+            b = conn.bridge()
+            st, out = b.cmd("ping")
+            if st == "OK":
+                if auto_enter:
+                    time.sleep(1.0)
+                    b.cmd("call", "type:GameManager", "BeginMainGame")
+                elapsed = time.time() - start_time
+                return True, f"Zen Trails launched via {launch_method} and connected in {elapsed:.1f}s ({out.strip()})."
+        except Exception as e:
+            last_err = str(e)
+            conn._b = None
+
+    return False, f"Timed out after {timeout}s waiting for Zen Trails bridge handshake on 127.0.0.1:5123. Last error: {last_err}"
+
+
+def generate_preset_segments(name: str, radius: float = 3.8, speed: float = 1.0, color: str = "gold", **kwargs):
+    """Generate segment definitions for sacred geometry presets."""
+    name = str(name).lower().strip()
+    segs = []
+
+    if name in ("flower_of_life", "rosette"):
+        # Flower of Life Rosette: ratio 1 : -2
+        count = int(kwargs.get("petals", kwargs.get("count", 6)))
+        r1 = radius * 0.56
+        r2 = radius * 0.44
+        phase_step = 360.0 / count
+        for i in range(count):
+            pid = 2000 + i
+            cid = 2100 + i
+            ang = i * phase_step
+            segs.append({
+                "id": pid,
+                "parent_id": None,
+                "length": r1,
+                "speed": speed,
+                "angle": ang,
+                "draw_trail": False,
+                "hide_mesh": True
+            })
+            segs.append({
+                "id": cid,
+                "parent_id": pid,
+                "length": r2,
+                "speed": -2.0 * speed,
+                "angle": 0.0,
+                "color": color,
+                "width": 0.35,
+                "glow": 1.8,
+                "draw_trail": True,
+                "hide_mesh": True
+            })
+
+    elif name in ("solar_corona", "corona"):
+        # Solar Corona: 24 flame rays, ratio 1 : -23
+        r1 = radius * 0.90
+        r2 = radius * 0.10
+        teeth_speed = -23.0 * speed
+        pid = 3000
+        cid = 3001
+        segs.append({
+            "id": pid,
+            "parent_id": None,
+            "length": r1,
+            "speed": speed,
+            "angle": 0.0,
+            "draw_trail": False,
+            "hide_mesh": True
+        })
+        segs.append({
+            "id": cid,
+            "parent_id": pid,
+            "length": r2,
+            "speed": teeth_speed,
+            "angle": 0.0,
+            "color": color,
+            "width": 0.30,
+            "glow": 2.2,
+            "draw_trail": True,
+            "hide_mesh": True
+        })
+
+    elif name in ("dodecagram", "hexagram"):
+        # Hexagram: ratio 1 : -5. If dodecagram, 2 groups offset by 30°
+        groups = 2 if name == "dodecagram" else 1
+        colors = kwargs.get("colors") or [color, "aqua" if color != "aqua" else "violet"]
+        r1 = radius * 0.50
+        r2 = radius * 0.50
+        for i in range(groups):
+            pid = 4000 + i
+            cid = 4100 + i
+            ang = i * 30.0
+            col = colors[i % len(colors)]
+            segs.append({
+                "id": pid,
+                "parent_id": None,
+                "length": r1,
+                "speed": speed,
+                "angle": ang,
+                "draw_trail": False,
+                "hide_mesh": True
+            })
+            segs.append({
+                "id": cid,
+                "parent_id": pid,
+                "length": r2,
+                "speed": -5.0 * speed,
+                "angle": 0.0,
+                "color": col,
+                "width": 0.35,
+                "glow": 2.0,
+                "draw_trail": True,
+                "hide_mesh": True
+            })
+
+    elif name in ("astroid", "diamond_star"):
+        # Astroid: ratio 1 : -3 (4 star points)
+        r1 = radius * 0.50
+        r2 = radius * 0.50
+        segs.append({
+            "id": 5000,
+            "parent_id": None,
+            "length": r1,
+            "speed": speed,
+            "angle": 0.0,
+            "draw_trail": False,
+            "hide_mesh": True
+        })
+        segs.append({
+            "id": 5001,
+            "parent_id": 5000,
+            "length": r2,
+            "speed": -3.0 * speed,
+            "angle": 0.0,
+            "color": color,
+            "width": 0.35,
+            "glow": 2.2,
+            "draw_trail": True,
+            "hide_mesh": True
+        })
+
+    elif name in ("concentric_ring", "ring", "boundary"):
+        # Single pure boundary ring
+        segs.append({
+            "id": 6000,
+            "parent_id": None,
+            "length": radius,
+            "speed": speed,
+            "angle": 0.0,
+            "color": color,
+            "width": 0.35,
+            "glow": 1.8,
+            "draw_trail": True,
+            "hide_mesh": True
+        })
+
+    return segs
+
+
 TOOLS = [
     {
         "name": "zen_cmd",
@@ -159,13 +376,14 @@ TOOLS = [
         "description": (
             "Capture the game screen to a PNG in <game>/shots/ and return the absolute path. "
             "Set return_image=true to also return the image inline (base64, scaled to max 1280px wide) "
-            "so a vision-capable model can see it directly."
+            "so a vision-capable model can see it directly. Set hide_ui=true (default) to capture clean wallpaper-grade visuals without UI."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "name": {"type": "string", "description": "file name (no .png)"},
                 "return_image": {"type": "boolean", "description": "inline the image as base64 content"},
+                "hide_ui": {"type": "boolean", "description": "temporarily hide UI elements during capture for clean visual (default true)"},
             },
         },
     },
@@ -419,6 +637,92 @@ TOOLS = [
             },
         },
     },
+    {
+        "name": "zen_launch",
+        "description": (
+            "Automatically detect, launch, and connect to Zen Trails via Steam URL protocol (steam://run/1418570) "
+            "or dynamic library search across all drives. Waits for TCP handshake on 127.0.0.1:5123 and transitions to main canvas."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "timeout": {"type": "number", "description": "Max seconds to wait for handshake (default 30.0)."},
+                "auto_enter": {"type": "boolean", "description": "Auto call BeginMainGame to enter drawing canvas (default true)."},
+            },
+        },
+    },
+    {
+        "name": "zen_status",
+        "description": "Inspect game process state, AgentBridge TCP connectivity, FPS, active simulation state, and active segment count.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "zen_quit",
+        "description": "Gracefully quit the Zen Trails game application.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "zen_render",
+        "description": (
+            "One-shot render and freeze: starts/unpauses physics simulation, lets light trails draw for specified duration "
+            "in seconds (default 18.0s for 1 full revolution), then safely calls TogglePause to freeze and preserve full trails."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "duration": {"type": "number", "description": "Seconds to run simulation (default 18.0)."},
+                "pause_after": {"type": "boolean", "description": "Safely freeze trails in place after duration without erasing (default true)."},
+            },
+        },
+    },
+    {
+        "name": "zen_create_segments",
+        "description": (
+            "Batch create multiple moving pendulum segments with light trails in a single transactional call. "
+            "Greatly improves performance when constructing complex mandalas with 10~20 segments."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "segments": {
+                    "type": "array",
+                    "description": "List of segment definitions. Each item supports: length, speed, angle, parent_id, color, width, glow, draw_trail, hide_mesh, id.",
+                    "items": {"type": "object"},
+                },
+            },
+            "required": ["segments"],
+        },
+    },
+    {
+        "name": "zen_set_ui",
+        "description": "Toggle visibility of game UI canvas (menus, buttons, navigation panels) for pristine visual presentation.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "visible": {"type": "boolean", "description": "True to show UI, False to hide all UI elements (default true)."},
+            },
+            "required": ["visible"],
+        },
+    },
+    {
+        "name": "zen_create_preset",
+        "description": (
+            "Create classic sacred geometry patterns with a single call. Supported presets: "
+            "'flower_of_life' (ratio 1:-2 rosette), 'solar_corona' (ratio 1:-23 flame rays), "
+            "'dodecagram' / 'hexagram' (ratio 1:-5 stars), 'astroid' (ratio 1:-3 diamond star), 'concentric_ring'."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Preset name: flower_of_life, solar_corona, dodecagram, hexagram, astroid, concentric_ring."},
+                "radius": {"type": "number", "description": "Outer radius (default 3.8)."},
+                "speed": {"type": "number", "description": "Base angular velocity (default 1.0)."},
+                "color": {"type": "string", "description": "Color name or RGBA string (default 'gold')."},
+                "petals": {"type": "integer", "description": "Number of petals for flower_of_life (default 6)."},
+            },
+            "required": ["name"],
+        },
+    },
 ]
 
 
@@ -456,7 +760,29 @@ def handle_call(name, arguments):
         n = arguments.get("name") or ("shot_" + str(int(time.time())))
         if n.lower().endswith(".png"):
             n = n[:-4]
+        hide_ui = bool(arguments.get("hide_ui", True))
+        nav_id = None
+        if hide_ui:
+            try:
+                st_nav, out_nav = conn.call("get", "type:NavigationPanel", "gameObject")
+                if "id=" in out_nav:
+                    nav_id = out_nav.split("id=")[1].split(")")[0]
+                    conn.call("call", f"obj:{nav_id}", "SetActive", "false")
+                conn.call("set", "type:Canvas", "enabled", "false")
+                time.sleep(0.15)
+            except Exception:
+                pass
+
         status, out = conn.call("shot", n)
+
+        if hide_ui:
+            try:
+                if nav_id:
+                    conn.call("call", f"obj:{nav_id}", "SetActive", "true")
+                conn.call("set", "type:Canvas", "enabled", "true")
+            except Exception:
+                pass
+
         if status != "OK":
             return {"content": [{"type": "text", "text": f"[{status}] {out}"}]}
         path = out.strip()
@@ -710,6 +1036,171 @@ def handle_call(name, arguments):
         topic = arguments.get("topic", "all")
         guide = get_agent_guide(topic)
         return {"content": [{"type": "text", "text": guide}]}
+
+    if name == "zen_launch":
+        timeout = float(arguments.get("timeout", 30.0))
+        auto_enter = bool(arguments.get("auto_enter", True))
+        ok, msg = find_and_launch_game(timeout=timeout, auto_enter=auto_enter)
+        return {"content": [{"type": "text", "text": msg}]}
+
+    if name == "zen_status":
+        try:
+            b = conn.bridge()
+            st, out = b.cmd("ping")
+            if st != "OK":
+                return {"content": [{"type": "text", "text": f"Zen Trails Status: Bridge ping failed ({out})"}]}
+            st_seq, out_seq = b.cmd("get", "type:ClickAndDrag", "sequencing")
+            st_pau, out_pau = b.cmd("get", "type:ClickAndDrag", "paused")
+            st_seg, out_seg = b.cmd("get", "type:ClickAndDrag", "segments")
+            seg_count = len(out_seg.split("Segment(Clone)(id=")) - 1 if "Segment(Clone)" in out_seg else 0
+            lines = [
+                "Zen Trails Status: RUNNING & CONNECTED",
+                f"- Bridge: {out.strip()}",
+                f"- Sequencing: {'True' if 'True' in out_seq else 'False'}",
+                f"- Paused: {'True' if 'True' in out_pau else 'False'}",
+                f"- Active Segments: {seg_count}",
+            ]
+            return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+        except Exception as e:
+            return {"content": [{"type": "text", "text": f"Zen Trails Status: NOT CONNECTED ({e})\nCall 'zen_launch' to automatically start the game via Steam."}]}
+
+    if name == "zen_quit":
+        st, out = conn.call("call", "type:GameManager", "QuitGame")
+        conn._b = None
+        return {"content": [{"type": "text", "text": "Zen Trails quit command sent."}]}
+
+    if name == "zen_render":
+        duration = float(arguments.get("duration", 18.0))
+        pause_after = bool(arguments.get("pause_after", True))
+        conn.call("set", "type:ClickAndDrag", "paused", "false")
+        st, out_seq = conn.call("get", "type:ClickAndDrag", "sequencing")
+        if "False" in out_seq:
+            conn.call("call", "type:ClickAndDrag", "StartOrStop")
+        time.sleep(duration)
+        if pause_after:
+            conn.call("call", "type:ClickAndDrag", "TogglePause")
+            return {"content": [{"type": "text", "text": f"Simulation rendered for {duration:.1f}s and safely paused. Full light trails preserved."}]}
+        return {"content": [{"type": "text", "text": f"Simulation running ({duration:.1f}s elapsed)."}]}
+
+    if name == "zen_create_segments":
+        segs_arg = arguments.get("segments", [])
+        if not segs_arg or not isinstance(segs_arg, list):
+            return rpc_error(None, -32602, "segments array required")
+        created = []
+        for item in segs_arg:
+            length = float(item.get("length", 1.0))
+            speed = float(item.get("speed", 1.0))
+            angle = float(item.get("angle", 0.0))
+            parent_id = item.get("parent_id")
+            color_arg = item.get("color", "gold")
+            color = NAMED_COLORS.get(str(color_arg).lower(), str(color_arg))
+            width = float(item.get("width", 0.40))
+            glow = float(item.get("glow", 1.8))
+            draw_trail = bool(item.get("draw_trail", True))
+            hide_mesh = bool(item.get("hide_mesh", True))
+            custom_id = item.get("id")
+
+            if custom_id is not None:
+                sid = int(custom_id)
+                if sid >= _next_segment_id:
+                    _next_segment_id = sid + 1
+            else:
+                sid = _next_segment_id
+                _next_segment_id += 1
+
+            is_child = "1" if (parent_id is not None and str(parent_id).lower() != "null") else "0"
+            parent_str = str(parent_id) if (parent_id is not None and str(parent_id).lower() != "null") else "null"
+
+            args = [
+                is_child,
+                str(sid),
+                parent_str,
+                f"{length:.4f}",
+                f"{speed}",
+                f"{angle:.2f}",
+                "1" if draw_trail else "0",
+                f"{width:.2f}",
+                str(color),
+                "0,0,0",
+                "0",
+                f"{glow:.2f}",
+                "0",
+                "null",
+                "0",
+                "0"
+            ]
+            conn.call("call", "type:ClickAndDrag", "CreateNewSegment", *args)
+            if hide_mesh:
+                conn.call("set", "path:/ClickAndDragMaster/Segment(Clone)", "hideMesh", "true")
+            created.append(sid)
+
+        return {"content": [{"type": "text", "text": f"Successfully created {len(created)} segments in batch. IDs: {created}"}]}
+
+    if name == "zen_set_ui":
+        visible = bool(arguments.get("visible", True))
+        val_str = "true" if visible else "false"
+        try:
+            st_nav, out_nav = conn.call("get", "type:NavigationPanel", "gameObject")
+            if "id=" in out_nav:
+                nav_id = out_nav.split("id=")[1].split(")")[0]
+                conn.call("call", f"obj:{nav_id}", "SetActive", val_str)
+            conn.call("set", "type:Canvas", "enabled", val_str)
+        except Exception:
+            pass
+        return {"content": [{"type": "text", "text": f"Game UI {'shown' if visible else 'hidden'}."}]}
+
+    if name == "zen_create_preset":
+        preset_name = arguments.get("name", "flower_of_life")
+        radius = float(arguments.get("radius", 3.8))
+        speed = float(arguments.get("speed", 1.0))
+        color = arguments.get("color", "gold")
+        petals = arguments.get("petals", 6)
+        segs = generate_preset_segments(name=preset_name, radius=radius, speed=speed, color=color, petals=petals)
+        if not segs:
+            return rpc_error(None, -32602, f"Unknown preset: {preset_name}. Supported: flower_of_life, solar_corona, dodecagram, hexagram, astroid, concentric_ring.")
+        created = []
+        for item in segs:
+            length = float(item.get("length", 1.0))
+            s_speed = float(item.get("speed", 1.0))
+            angle = float(item.get("angle", 0.0))
+            parent_id = item.get("parent_id")
+            color_arg = item.get("color", "gold")
+            col = NAMED_COLORS.get(str(color_arg).lower(), str(color_arg))
+            width = float(item.get("width", 0.40))
+            glow = float(item.get("glow", 1.8))
+            draw_trail = bool(item.get("draw_trail", True))
+            hide_mesh = bool(item.get("hide_mesh", True))
+            sid = item.get("id")
+            if sid is not None and sid >= _next_segment_id:
+                _next_segment_id = sid + 1
+
+            is_child = "1" if (parent_id is not None and str(parent_id).lower() != "null") else "0"
+            parent_str = str(parent_id) if (parent_id is not None and str(parent_id).lower() != "null") else "null"
+
+            args = [
+                is_child,
+                str(sid),
+                parent_str,
+                f"{length:.4f}",
+                f"{s_speed}",
+                f"{angle:.2f}",
+                "1" if draw_trail else "0",
+                f"{width:.2f}",
+                str(col),
+                "0,0,0",
+                "0",
+                f"{glow:.2f}",
+                "0",
+                "null",
+                "0",
+                "0"
+            ]
+            conn.call("call", "type:ClickAndDrag", "CreateNewSegment", *args)
+            if hide_mesh:
+                conn.call("set", "path:/ClickAndDragMaster/Segment(Clone)", "hideMesh", "true")
+            created.append(sid)
+
+        return {"content": [{"type": "text", "text": f"Preset '{preset_name}' created successfully with {len(created)} segments. IDs: {created}"}]}
 
     return rpc_error(None, -32601, f"unknown tool {name}")
 

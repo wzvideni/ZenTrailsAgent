@@ -30,17 +30,16 @@ Zen Trails 是一个基于物理与几何规律的流光绘图发生器。游戏
 
 ```mermaid
 flowchart TD
-    A["1. zen_clear()"] --> B["2. zen_dark_mode() + zen_set_camera()"]
-    B --> C["3. 循环调用 zen_create_segment() 构建几何"]
-    C --> D["4. zen_hide_arms(hide=true) 隐藏物理臂"]
-    D --> E["5. zen_play() 启动模拟绘制 (等待 15~22 秒)"]
-    E --> F["6. zen_pause() 定格画面 (保留完整流光)"]
-    F --> G["7. zen_screenshot(return_image=true) 视觉检查"]
-    G --> H["8. zen_save() 归档 / zen_upload() 发布工坊"]
+    A["0. zen_launch() 自动检测并拉起游戏"] --> B["1. zen_clear() + zen_dark_mode() + zen_set_camera()"]
+    B --> C["2. zen_create_segments() 批量构建几何 / zen_create_preset() 预设一键生成"]
+    C --> D["3. zen_hide_arms(hide=true) 隐藏物理连杆"]
+    D --> E["4. zen_render(duration=18.0) 一步式自动绘制并无损定格"]
+    E --> F["5. zen_screenshot(hide_ui=true, return_image=true) 纯净壁纸截屏"]
+    F --> G["6. zen_save() 归档 / zen_upload() 发布至 Steam 创意工坊"]
 ```
 
 ### 极度关键的避坑守则 (Must-Know Rules)
-1. **定格切勿二次调用 `zen_play`**：再次调用 `zen_play`（或原生 `StartOrStop`）会重置物理时间并**彻底清空**已绘制的流光轨迹！**定格保留轨迹必须且只能调用 `zen_pause`**（底层调用 `TogglePause`）。
+1. **优先使用 `zen_render(duration=18.0)` 替代分步等待**：`zen_render` 内部自动完成物理运行与 `TogglePause` 定格，杜绝误触清空轨迹或延时不准的问题。如需手动控制，**切勿在定格后二次调用 `zen_play`**（会清空画布）。
 2. **隐藏机械臂必须通过 `zen_hide_arms(hide=true)`**：若未隐藏物理连杆，截屏时画面会带有粗糙的白色连杆模型，影响流光艺术美感。
 3. **载波卫星法阵（Off-Center Satellite Circles）**：
    - 将母臂设为 `speed: 0`、`draw_trail: false`，其端点即可作为一个位于非原点的**静态星位锚点**；
@@ -50,7 +49,7 @@ flowchart TD
 
 ## 常用神圣色彩体系 (Sacred Palettes)
 
-`zen_create_segment` 工具的 `color` 参数支持直接传入色彩别名：
+`zen_create_segment` / `zen_create_segments` / `zen_create_preset` 的 `color` 参数支持直接传入色彩别名：
 
 - `gold` (`1.00,0.85,0.28,1`) —— 太阳真金，用于主轮、神圣符印与日轮耀斑；
 - `cyan` (`0.20,0.92,1.00,1`) —— 苍穹碧蓝，用于外层天界、隔离防护环与星芒；
@@ -67,22 +66,30 @@ flowchart TD
 
 ## 工具分层总览
 
-### 1. 高阶创作工具 (High-Level Domain Tools)
+### 1. 生命周期与就绪管理 (Lifecycle & Readiness)
+- `zen_launch(timeout=30.0, auto_enter=true)`：完全路径无关！基于 Steam 协议（`steam://run/1418570`）或多盘 Steam 库动态扫描启动游戏，并轮询等待 TCP Bridge 握手成功；
+- `zen_status()`：检查游戏进程状态、Bridge 连接延迟、FPS、当前仿真状态及活动线段计数；
+- `zen_quit()`：优雅退出游戏。
+
+### 2. 高阶创作与渲染工具 (Creation & Rendering)
 - `zen_clear()`：一键安全重置画布与线段编号计数器；
 - `zen_dark_mode(color="0.02,0.02,0.04,1")`：切换深邃宇宙夜空，关闭原生干扰背景；
 - `zen_set_camera(distance=-12.5)`：调整视距（微型曼陀罗用 `-10.5`，宏大法阵用 `-12.8`）；
-- `zen_create_segment(length, speed, angle=0, parent_id=null, color="gold", width=0.4, glow=1.8, draw_trail=true, hide_mesh=true)`：创建线段，自动隐藏机械网格与管理 ID；
+- `zen_create_segment(...)`：单条创建线段，自动隐藏机械网格与管理 ID；
+- `zen_create_segments(segments=[...])`：**批量连杆事务创建**，一次 RPC 即可构建 10~20 级宏大法阵骨架；
+- `zen_create_preset(name="flower_of_life", ...)`：**经典几何预设一键生成**（支持 `flower_of_life`、`solar_corona`、`dodecagram`、`hexagram`、`astroid`、`concentric_ring`）；
 - `zen_hide_arms(hide=true)`：切换物理机械臂的显示与隐藏；
-- `zen_play()`：启动模拟器绘制流光；
-- `zen_pause()`：安全定格流光画面；
+- `zen_render(duration=18.0, pause_after=true)`：**一步式流光渲染**，自动运行指定时长并无损定格；
+- `zen_play()` / `zen_pause()`：底层模拟器启动与定格控制；
 - `zen_list_segments()`：查看当前作品的完整骨架列表与参数。
 
-### 2. 系统与发布工具 (System & Publishing)
-- `zen_screenshot(name="...", return_image=true)`：高清采样并内联返回给视觉模型；
+### 3. 画面与发布工具 (Visuals & Publishing)
+- `zen_set_ui(visible=bool)`：一键显示或隐藏全部游戏 UI；
+- `zen_screenshot(name="...", hide_ui=true, return_image=true)`：高清采样并内联返回给视觉模型，默认自动屏蔽一切 UI 按钮；
 - `zen_save(name="...", type="custom")`：保存为官方 `.mndla` 二进制存档；
 - `zen_load(name="...", type="custom")`：载入历史存档；
 - `zen_upload(title="...", description="...")`：全自动无 UI 纯净拍摄并推送到 Steam 创意工坊；
 - `zen_music(song="...")`：切换背景禅音（Mandalas / Wavelengths / Footprints / Dreams / Space）。
 
-### 3. 底层调试逃生通道 (Low-Level Escape Hatch)
+### 4. 底层调试逃生通道 (Low-Level Escape Hatch)
 - `zen_cmd(command, args)`、`zen_call(selector, method, args)`、`zen_get`、`zen_set`、`zen_scene`、`zen_types`、`zen_describe` 等原生反射接口，用于深度逆向探索。

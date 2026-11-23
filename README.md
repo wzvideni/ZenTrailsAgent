@@ -18,7 +18,7 @@ mcp_server.py  ──(line protocol / TCP 127.0.0.1:5123)──▶  ZenTrailsAge
 ```
 
 - **游戏内插件**：`ZenTrailsAgent.dll` 注入到游戏进程，监听 `127.0.0.1:5123`，把每个命令放到 Unity 主线程 `Update()` 里执行，安全地反射调用游戏方法。
-- **MCP server**：`zentrails_agent/server.py`（纯标准库 + Pillow），提供 24 个标准 MCP 工具与原生 Resource。
+- **MCP server**：`zentrails_agent/server.py`（纯标准库 + Pillow），提供 31 个标准 MCP 工具与原生 Resource。
 - **客户端**：任何支持 MCP stdio 的客户端都能接入（Claude Desktop、Cursor、Cline、DSH 等）。
 
 ## 目录结构
@@ -33,7 +33,7 @@ ZenTrailsAgent/
 ├── zentrails_agent/         # Python 包（可安装，提供 zen-trails-agent 命令）
 │   ├── __init__.py
 │   ├── client.py            # 桥接客户端（TCP line protocol）
-│   └── server.py            # MCP server（stdio / JSON-RPC 2.0，15 个工具）
+│   └── server.py            # MCP server（stdio / JSON-RPC 2.0，31 个工具）
 ├── docs/
 │   └── INSTALL.txt          # 随发布包分发的安装/接入说明
 ├── demos/                   # 演示样例库
@@ -150,8 +150,8 @@ uv run python tools/package.py --game <路径> # 指定游戏目录（默认 ZEN
 产物：
 
 ```
-dist/ZenTrails-Agent-v0.2.0.zip
-    ZenTrails-Agent-v0.2.0/
+dist/ZenTrails-Agent-v0.2.1.zip
+    ZenTrails-Agent-v0.2.1/
         INSTALL.txt
         game/                              ← 解压覆盖到游戏根目录
             winhttp.dll  doorstop_config.ini  .doorstop_version
@@ -210,18 +210,29 @@ dist/ZenTrails-Agent-v0.2.0.zip
 
 > 关于 `npx`：这是 Node 的等价物。本项目的 MCP server 是 Python 实现，用 `uvx` 是最自然的对应方式；若需要 `npx` 形式，需另写一个 Node 版 server（桥接协议不变，仅 client/server 换成 JS），目前未提供。
 
-重启客户端后，工具列表会出现 `zentrails` 系列（包含 9 个高阶创作工具、5 个系统与工坊工具、10 个底层反射工具，共 24 个）。`mcp_server.py` 是懒连接：游戏没开时它不会崩，只是调用返回 `[ERR] bridge error`。
+重启客户端后，工具列表会出现 `zentrails` 系列（包含 3 个生命周期管理工具、12 个高阶创作工具、6 个系统与工坊工具、10 个底层反射工具，共 31 个）。`mcp_server.py` 是懒连接；若游戏尚未开启，调用任意工具均会友好提示使用 `zen_launch` 自动跨盘自适应启动游戏。
 
 > 💡 **AI 创作必读**：关于物理多连杆逆旋摆线生成公式（生命之花、多芒星、日轮耀斑）及创作最佳实践，已原生内置为 `zen_guide` 工具与 MCP 资源 `zentrails://guide`，详见专为 Agent 编写的 **[AGENTS.md](file:///C:/Programming/PyCharm/ZenTrailsAgent/AGENTS.md)**。
 
-## MCP 工具列表 (共 24 个)
+## MCP 工具列表 (共 31 个)
 
-### 1. 高阶领域创作工具（AI 创作核心）
+### 1. 生命周期与就绪管理
+
+| 工具 | 说明 |
+|------|------|
+| `zen_launch` | **自适应启动**：基于 Steam 协议（`steam://run/1418570`）或多盘 Steam 库动态扫描启动游戏，并轮询等待 TCP 握手自动就绪 |
+| `zen_status` | **状态探测**：实时监控游戏连通性、当前 FPS、仿真运转状态及活动线段总数 |
+| `zen_quit` | **退出游戏**：优雅安全关闭游戏进程 |
+
+### 2. 高阶领域创作工具（AI 创作核心）
 
 | 工具 | 说明 |
 |------|------|
 | `zen_guide` | **创作手册**：获取多连杆逆旋摆线速比公式、生命之花、星芒几何规律与神圣色彩体系（可过滤 `kinematics`/`palettes`/`workflow`） |
+| `zen_create_preset` | **神圣几何预设**：一键生成经典几何模版（`flower_of_life`、`solar_corona`、`dodecagram`、`hexagram`、`astroid`、`concentric_ring`） |
+| `zen_create_segments` | **批量创建连杆**：单次事务批量构建整套多级复合连杆骨架，大幅降低网络往返延迟 |
 | `zen_create_segment` | **高阶创建连杆**：自动补齐 16 个引擎参数、管理 ID、支持 `parent_id` 级联，自动隐藏机械网格并防原生崩溃 |
+| `zen_render` | **一步式流光渲染**：启动模拟并在指定时间（默认 18.0s）后自动执行 `TogglePause` 定格，安全锁定完整轨迹 |
 | `zen_clear` | **一键清空画布**：安全重置场景，清除所有活跃线段并复位 ID 计数器 |
 | `zen_play` | **启动模拟**：确保解除暂停，运行物理模拟以绘制璀璨流光轨迹 |
 | `zen_pause` | **定格画面**：通过 `TogglePause` 安全暂停物理运动，完好冻结流光画面，绝不抹除已绘制轨迹 |
@@ -230,17 +241,18 @@ dist/ZenTrails-Agent-v0.2.0.zip
 | `zen_hide_arms` | **机械臂隐身**：一键隐藏物理连杆粗糙网格，仅在视口中展示纯净天体流光 |
 | `zen_list_segments` | **查询骨架**：结构化查看当前画布全部线段的 ID、父子挂载关系、长度、转速、角度与颜色 |
 
-### 2. 系统与工坊发布工具
+### 3. 系统与工坊发布工具
 
 | 工具 | 说明 |
 |------|------|
-| `zen_screenshot` | 截图到 `<游戏目录>\shots\*.png`；`return_image=true` 内联返回缩放 JPEG 供 vision 模型直读 |
+| `zen_screenshot` | **纯净截屏**：截图到 `<游戏目录>\shots\*.png`，默认 `hide_ui=true` 瞬间隐藏全部按钮生成壁纸级大图；`return_image=true` 内联返回缩放 JPEG 供 vision 模型直读 |
+| `zen_set_ui` | **界面显隐**：一键切换显示或隐藏游戏 UI 画布及导航面板 |
 | `zen_upload` | **工坊发布**：全自动无 UI 纯净拍摄（隐藏右上角导航栏）并推送到 Steam 创意工坊（30 秒冷却保护） |
 | `zen_save` | 保存当前作品为 .mndla 二进制存档（type: custom/preset） |
 | `zen_load` | 读取 .mndla 存档（反序列化 + SaveAndLoadManager.Load） |
 | `zen_music` | 切换背景禅音（Mandalas/Wavelengths/Footprints/Dreams/Space，缺省切下一首） |
 
-### 3. 底层调试与反射逃生通道
+### 4. 底层调试与反射逃生通道
 
 | 工具 | 说明 |
 |------|------|
